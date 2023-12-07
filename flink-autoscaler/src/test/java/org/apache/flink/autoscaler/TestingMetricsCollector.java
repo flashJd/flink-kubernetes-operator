@@ -18,11 +18,14 @@
 package org.apache.flink.autoscaler;
 
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.autoscaler.metrics.FlinkMetric;
 import org.apache.flink.autoscaler.topology.JobTopology;
 import org.apache.flink.client.program.rest.RestClusterClient;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.runtime.clusterframework.types.ResourceID;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
+import org.apache.flink.runtime.rest.messages.ResourceProfileInfo;
 import org.apache.flink.runtime.rest.messages.job.JobDetailsInfo;
 import org.apache.flink.runtime.rest.messages.job.metrics.AggregatedMetric;
 
@@ -63,6 +66,14 @@ public class TestingMetricsCollector<KEY, Context extends JobAutoScalerContext<K
     protected Map<JobVertexID, Map<FlinkMetric, AggregatedMetric>> queryAllAggregatedMetrics(
             Context ctx, Map<JobVertexID, Map<String, FlinkMetric>> filteredVertexMetricNames) {
         return currentMetrics;
+    }
+
+    @Override
+    protected Map<ResourceID, Tuple2<Long, Long>> queryAllTaskManagerResourceProfiles(Context ctx) {
+        Map<ResourceID, Tuple2<Long, Long>> resourceIDTuple2Map = new HashMap<>();
+        var profile = 1L;
+        resourceIDTuple2Map.put(ResourceID.generate(), Tuple2.of(profile, profile));
+        return resourceIDTuple2Map;
     }
 
     @Override

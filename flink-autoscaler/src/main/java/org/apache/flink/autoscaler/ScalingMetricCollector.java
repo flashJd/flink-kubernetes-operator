@@ -19,6 +19,7 @@ package org.apache.flink.autoscaler;
 
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.autoscaler.config.AutoScalerOptions;
 import org.apache.flink.autoscaler.exceptions.NotReadyException;
 import org.apache.flink.autoscaler.metrics.CollectedMetricHistory;
@@ -31,11 +32,13 @@ import org.apache.flink.autoscaler.state.AutoScalerStateStore;
 import org.apache.flink.autoscaler.topology.JobTopology;
 import org.apache.flink.client.program.rest.RestClusterClient;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.runtime.clusterframework.types.ResourceID;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.rest.messages.EmptyRequestBody;
 import org.apache.flink.runtime.rest.messages.JobIDPathParameter;
 import org.apache.flink.runtime.rest.messages.JobVertexIdPathParameter;
+import org.apache.flink.runtime.rest.messages.ResourceProfileInfo;
 import org.apache.flink.runtime.rest.messages.job.JobDetailsInfo;
 import org.apache.flink.runtime.rest.messages.job.metrics.AggregatedMetric;
 import org.apache.flink.runtime.rest.messages.job.metrics.AggregatedSubtaskMetricsHeaders;
@@ -125,10 +128,11 @@ public abstract class ScalingMetricCollector<KEY, Context extends JobAutoScalerC
 
         // Aggregated job vertex metrics collected from Flink based on the filtered metric names
         var collectedVertexMetrics = queryAllAggregatedMetrics(ctx, filteredVertexMetricNames);
+        var resourceProfiles = queryAllTaskManagerResourceProfiles(ctx);
 
         // The computed scaling metrics based on the collected aggregated vertex metrics
         var scalingMetrics =
-                convertToScalingMetrics(jobKey, collectedVertexMetrics, topology, conf);
+                convertToScalingMetrics(jobKey, collectedVertexMetrics, resourceProfiles, topology, conf);
 
         // Add scaling metrics to history if they were computed successfully
         metricHistory.put(now, scalingMetrics);
@@ -246,6 +250,7 @@ public abstract class ScalingMetricCollector<KEY, Context extends JobAutoScalerC
     private CollectedMetrics convertToScalingMetrics(
             KEY jobKey,
             Map<JobVertexID, Map<FlinkMetric, AggregatedMetric>> collectedMetrics,
+            Map<ResourceID, Tuple2<Long, Long>> resourceProfiles,
             JobTopology jobTopology,
             Configuration conf) {
 
@@ -274,6 +279,8 @@ public abstract class ScalingMetricCollector<KEY, Context extends JobAutoScalerC
 
                     ScalingMetrics.computeLoadMetrics(
                             jobVertexID, vertexFlinkMetrics, vertexScalingMetrics, conf);
+
+                    ScalingMetrics.computeRocksDBCacheHitMetrics(vertexFlinkMetrics, vertexScalingMetrics);
 
                     var metricHistory =
                             histories.getOrDefault(jobKey, Collections.emptySortedMap());
@@ -305,8 +312,10 @@ public abstract class ScalingMetricCollector<KEY, Context extends JobAutoScalerC
                 });
 
         var outputRatios = ScalingMetrics.computeOutputRatios(collectedMetrics, jobTopology);
-        LOG.debug("Output ratios: {}", outputRatios);
-        return new CollectedMetrics(out, outputRatios);
+        var freeRatios = ScalingMetrics.computeFreeRatios(resourceProfiles);
+
+        LOG.debug("Output ratios: {}, freeRatios: {}", outputRatios, freeRatios);
+        return new CollectedMetrics(out, outputRatios, freeRatios);
     }
 
     private static Supplier<Double> observedTprAvg(
@@ -415,6 +424,11 @@ public abstract class ScalingMetricCollector<KEY, Context extends JobAutoScalerC
         var requiredMetrics = new HashSet<FlinkMetric>();
 
         requiredMetrics.add(FlinkMetric.BUSY_TIME_PER_SEC);
+        if (FlinkMetric.ROCKSDB_BLOCK_CACHE_HIT.findAny(allMetricNames).isPresent() &&
+                FlinkMetric.ROCKSDB_BLOCK_CACHE_MISS.findAny(allMetricNames).isPresent()) {
+            requiredMetrics.add(FlinkMetric.ROCKSDB_BLOCK_CACHE_HIT);
+            requiredMetrics.add(FlinkMetric.ROCKSDB_BLOCK_CACHE_MISS);
+        }
 
         if (topology.isSource(jobVertexID)) {
             requiredMetrics.add(FlinkMetric.BACKPRESSURE_TIME_PER_SEC);
@@ -483,6 +497,9 @@ public abstract class ScalingMetricCollector<KEY, Context extends JobAutoScalerC
             queryAllAggregatedMetrics(
                     Context ctx,
                     Map<JobVertexID, Map<String, FlinkMetric>> filteredVertexMetricNames);
+
+    protected abstract Map<ResourceID, Tuple2<Long, Long>>
+            queryAllTaskManagerResourceProfiles(Context ctx);
 
     public JobDetailsInfo getJobDetailsInfo(
             JobAutoScalerContext<KEY> context, Duration clientTimeout) throws Exception {

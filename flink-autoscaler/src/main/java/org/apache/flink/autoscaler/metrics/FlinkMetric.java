@@ -39,8 +39,9 @@ public enum FlinkMetric {
     SOURCE_TASK_NUM_RECORDS_IN_PER_SEC(
             s -> s.startsWith("Source__") && s.endsWith(".numRecordsInPerSecond")),
     PENDING_RECORDS(s -> s.endsWith(".pendingRecords")),
-    BACKPRESSURE_TIME_PER_SEC(s -> s.equals("backPressuredTimeMsPerSecond"));
-
+    BACKPRESSURE_TIME_PER_SEC(s -> s.equals("backPressuredTimeMsPerSecond")),
+    ROCKSDB_BLOCK_CACHE_HIT(s -> s.equals("KeyedProcess.rocksdb_block_cache_hit")),
+    ROCKSDB_BLOCK_CACHE_MISS(s -> s.equals("KeyedProcess.rocksdb_block_cache_miss"));
     public static final Map<FlinkMetric, AggregatedMetric> FINISHED_METRICS =
             Map.of(
                     FlinkMetric.BUSY_TIME_PER_SEC, zero(),

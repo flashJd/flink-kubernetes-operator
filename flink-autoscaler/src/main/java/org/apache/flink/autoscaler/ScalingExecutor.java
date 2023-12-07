@@ -23,6 +23,8 @@ import org.apache.flink.autoscaler.event.AutoScalerEventHandler;
 import org.apache.flink.autoscaler.metrics.EvaluatedScalingMetric;
 import org.apache.flink.autoscaler.metrics.ScalingMetric;
 import org.apache.flink.autoscaler.state.AutoScalerStateStore;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.MemorySize;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 
 import org.slf4j.Logger;
@@ -30,17 +32,14 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.SortedMap;
+import java.util.*;
 
-import static org.apache.flink.autoscaler.config.AutoScalerOptions.SCALING_ENABLED;
-import static org.apache.flink.autoscaler.config.AutoScalerOptions.SCALING_EVENT_INTERVAL;
+import static org.apache.flink.autoscaler.config.AutoScalerOptions.*;
 import static org.apache.flink.autoscaler.metrics.ScalingHistoryUtils.addToScalingHistoryAndStore;
 import static org.apache.flink.autoscaler.metrics.ScalingMetric.SCALE_DOWN_RATE_THRESHOLD;
 import static org.apache.flink.autoscaler.metrics.ScalingMetric.SCALE_UP_RATE_THRESHOLD;
 import static org.apache.flink.autoscaler.metrics.ScalingMetric.TRUE_PROCESSING_RATE;
+import static org.apache.flink.configuration.TaskManagerOptions.*;
 
 /** Class responsible for executing scaling decisions. */
 public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
@@ -111,6 +110,42 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
                 context, getVertexParallelismOverrides(evaluatedMetrics, scalingSummaries));
 
         return true;
+    }
+
+    public boolean boastProcessMemory(Context context) throws Exception {
+        var conf = context.getConfiguration();
+        var processMem = conf.get(TOTAL_PROCESS_MEMORY);
+        double memScale = 1+conf.get(FLINK_TM_MEM_BOAST_RATIO);
+        var newProcessMem = processMem.multiply(memScale);
+        var newMemStr= newProcessMem.getMebiBytes()+"m";
+        autoScalerStateStore.storeProcessMemOverrides(context, newMemStr);
+        LOG.info("Scaling {} process mem from {} to {}", context.getJobKey(), processMem, newMemStr);
+        return true;
+    }
+
+    public boolean boastManagedMemory(Context context) throws Exception {
+        var conf = context.getConfiguration();
+        var freeHeap = conf.get(FLINK_TM_FREE_MEMORY);
+        var oldMem = getManagedMem(conf);
+        float boastRatio = conf.get(FLINK_MANAGED_MEM_BOAST_RATIO);
+        var addedMemory = freeHeap.multiply(boastRatio);
+        var newMem = oldMem.add(addedMemory);
+        autoScalerStateStore.storeManagedMemOverrides(context, newMem.getMebiBytes()+"m");
+        LOG.info("Scaling {} managed from {} to {}", context.getJobKey(), oldMem, newMem);
+        return true;
+    }
+
+    private MemorySize getManagedMem(Configuration conf) {
+        MemorySize managedMem = conf.get(MANAGED_MEMORY_SIZE);
+        if (managedMem == null) {
+            MemorySize freeMem = conf.get(FLINK_TM_FREE_MEMORY);
+            MemorySize totalMem = conf.get(FLINK_TM_TOTAL_HEAP_MEMORY);
+            float floatFraction = conf.get(MANAGED_MEMORY_FRACTION);
+            managedMem = totalMem.multiply(floatFraction);
+            LOG.info("Get managedMem {}, due to freeMem={}, totalMem={}, floatFraction={}",
+                    managedMem, freeMem, totalMem, floatFraction);
+        }
+        return managedMem;
     }
 
     private void updateRecommendedParallelism(

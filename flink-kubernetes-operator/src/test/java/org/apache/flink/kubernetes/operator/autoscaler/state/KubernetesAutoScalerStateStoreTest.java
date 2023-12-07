@@ -22,7 +22,9 @@ import org.apache.flink.autoscaler.config.AutoScalerOptions;
 import org.apache.flink.autoscaler.metrics.CollectedMetrics;
 import org.apache.flink.autoscaler.metrics.EvaluatedScalingMetric;
 import org.apache.flink.autoscaler.metrics.ScalingMetric;
+import org.apache.flink.autoscaler.metrics.ScalingMetrics;
 import org.apache.flink.kubernetes.operator.autoscaler.KubernetesJobAutoScalerContext;
+import org.apache.flink.runtime.clusterframework.types.ResourceID;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 
 import io.fabric8.kubernetes.client.KubernetesClient;
@@ -44,6 +46,8 @@ import java.util.TreeMap;
 import static org.apache.flink.autoscaler.metrics.ScalingHistoryUtils.addToScalingHistoryAndStore;
 import static org.apache.flink.autoscaler.metrics.ScalingHistoryUtils.getTrimmedScalingHistory;
 import static org.apache.flink.autoscaler.metrics.ScalingHistoryUtils.updateVertexList;
+import static org.apache.flink.autoscaler.metrics.ScalingMetrics.TYPE.HEAP_FREE_RATIO;
+import static org.apache.flink.autoscaler.metrics.ScalingMetrics.TYPE.HEAP_FREE_RESOURCE;
 import static org.apache.flink.kubernetes.operator.autoscaler.TestingKubernetesAutoscalerUtils.createContext;
 import static org.apache.flink.kubernetes.operator.autoscaler.state.KubernetesAutoScalerStateStore.serializeEvaluatedMetrics;
 import static org.apache.flink.kubernetes.operator.autoscaler.state.KubernetesAutoScalerStateStore.serializeScalingHistory;
@@ -192,10 +196,15 @@ public class KubernetesAutoScalerStateStoreTest {
         var v1 = new JobVertexID();
 
         var metricHistory = new TreeMap<Instant, CollectedMetrics>();
+
+        var freeRes = new HashMap<ScalingMetrics.TYPE, Double>(2);
+        freeRes.put(HEAP_FREE_RESOURCE, 1d);
+        freeRes.put(HEAP_FREE_RATIO, 0.1d);
         metricHistory.put(
                 jobUpdateTs,
                 new CollectedMetrics(
-                        Map.of(v1, Map.of(ScalingMetric.TRUE_PROCESSING_RATE, 1.)), Map.of()));
+                        Map.of(v1, Map.of(ScalingMetric.TRUE_PROCESSING_RATE, 1.)), Map.of(),
+                        Map.of(ResourceID.generate(), freeRes)));
 
         var scalingHistory = new HashMap<JobVertexID, SortedMap<Instant, ScalingSummary>>();
         scalingHistory.put(v1, new TreeMap<>());
@@ -204,7 +213,8 @@ public class KubernetesAutoScalerStateStoreTest {
                 .put(
                         jobUpdateTs,
                         new ScalingSummary(
-                                1, 2, Map.of(ScalingMetric.LAG, EvaluatedScalingMetric.of(2.))));
+                                1, 2,
+                                Map.of(ScalingMetric.LAG, EvaluatedScalingMetric.of(2.))));
 
         // Store uncompressed data in map to simulate migration
         configMapStore.putSerializedState(

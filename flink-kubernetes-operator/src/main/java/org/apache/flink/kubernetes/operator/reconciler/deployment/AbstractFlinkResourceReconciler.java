@@ -186,7 +186,7 @@ public abstract class AbstractFlinkResourceReconciler<
                 ctx.getResource().getSpec().getJob() != null
                         && ctx.getObserveConfig().getBoolean(AUTOSCALER_ENABLED);
         autoScalerCtx.getConfiguration().set(AUTOSCALER_ENABLED, autoscalerEnabled);
-
+//        ctx.getResource().getSpec().getFlinkConfiguration().put("taskmanager.memory.managed.size", "100m");
         autoscaler.scale(autoScalerCtx);
     }
 

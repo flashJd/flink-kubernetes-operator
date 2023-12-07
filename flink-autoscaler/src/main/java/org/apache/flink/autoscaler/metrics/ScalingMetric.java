@@ -23,6 +23,9 @@ package org.apache.flink.autoscaler.metrics;
  */
 public enum ScalingMetric {
 
+    /** Subtask rocksdb cache hit rate (hit ratio 0 (fully disk) to 1 (fully cache)). */
+    ROCKSDB_CACHE_HIT(true),
+
     /** Subtask load (busy time ratio 0 (idle) to 1 (fully utilized)). */
     LOAD(true),
 

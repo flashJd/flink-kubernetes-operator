@@ -53,6 +53,8 @@ import java.util.TreeMap;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
+import static org.apache.flink.configuration.TaskManagerOptions.MANAGED_MEMORY_SIZE;
+
 /** An AutoscalerStateStore which persists its state in Kubernetes ConfigMaps. */
 public class KubernetesAutoScalerStateStore
         implements AutoScalerStateStore<ResourceID, KubernetesJobAutoScalerContext> {
@@ -65,6 +67,13 @@ public class KubernetesAutoScalerStateStore
 
     @VisibleForTesting
     protected static final String PARALLELISM_OVERRIDES_KEY = "parallelismOverrides";
+
+    @VisibleForTesting
+    protected static final String MANAGED_OVERRIDES_KEY = "managedOverrides";
+
+    @VisibleForTesting
+    protected static final String PROCESS_OVERRIDES_KEY = "processOverrides";
+
 
     @VisibleForTesting protected static final int MAX_CM_BYTES = 1000000;
 
@@ -175,6 +184,32 @@ public class KubernetesAutoScalerStateStore
                 jobContext,
                 PARALLELISM_OVERRIDES_KEY,
                 serializeParallelismOverrides(parallelismOverrides));
+    }
+
+    @Override
+    public void storeProcessMemOverrides(KubernetesJobAutoScalerContext jobContext, String processMem) throws Exception {
+        configMapStore.putSerializedState(
+                jobContext,
+                PROCESS_OVERRIDES_KEY,
+                processMem);
+    }
+
+    @Override
+    public void storeManagedMemOverrides(KubernetesJobAutoScalerContext jobContext, String managed) {
+        configMapStore.putSerializedState(
+                jobContext,
+                MANAGED_OVERRIDES_KEY,
+                managed);
+    }
+
+    @Override
+    public Optional<String> getProcessMemOverrides(KubernetesJobAutoScalerContext jobContext) {
+        return configMapStore.getSerializedState(jobContext, PROCESS_OVERRIDES_KEY);
+    }
+
+    @Override
+    public Optional<String> getManagedMemOverrides(KubernetesJobAutoScalerContext jobContext) {
+        return configMapStore.getSerializedState(jobContext, MANAGED_OVERRIDES_KEY);
     }
 
     @Override

@@ -19,27 +19,34 @@
 apiVersion: flink.apache.org/v1beta1
 kind: FlinkDeployment
 metadata:
-  name: autoscaling-example
+  name: autoscaling-memory
 spec:
   image: localhost:5000/autoscaling-example
-  flinkVersion: v1_18
+  flinkVersion: v1_17
   flinkConfiguration:
     job.autoscaler.enabled: "true"
     job.autoscaler.stabilization.interval: "1m"
-    job.autoscaler.metrics.window: "3m"
-    pipeline.max-parallelism: "24"
-    taskmanager.numberOfTaskSlots: "4"
-    state.savepoints.dir: file:///flink-data/savepoints
-    state.checkpoints.dir: file:///flink-data/checkpoints
+    job.autoscaler.metrics.window: "1m"
+    job.autoscaler.target.utilization: "0.9"
+    job.autoscaler.target.utilization.boundary: "0.9"
+    job.autoscaler.flink.tm.mem.boast.ratio: "0.8"
+    job.autoscaler.flink.tm.heap.full.ratio: "0.6"
+    state.backend.rocksdb.metrics.block-cache-hit: "true"
+    state.backend.rocksdb.metrics.block-cache-miss: "true"
     high-availability.type: kubernetes
     high-availability.storageDir: file:///flink-data/ha
+    state.backend.type: "rocksdb"
+    state.checkpoints.dir: file:///flink-data/checkpoints
     execution.checkpointing.interval: "1m"
-    jobmanager.scheduler: adaptive
-    job.autoscaler.target.utilization.boundary: "0.1"
+    pipeline.max-parallelism: "32"
+    taskmanager.numberOfTaskSlots: "2"
+    #    taskmanager.memory.managed.size: "10m"
+    example.cache.data: "true"
+    example.cache.number: "8000000"
   serviceAccount: flink
   jobManager:
     resource:
-      memory: "2048m"
+      memory: "1024m"
       cpu: 0.5
   taskManager:
     resource:
@@ -61,6 +68,6 @@ spec:
             type: Directory
   job:
     jarURI: local:///opt/flink/usrlib/autoscaling.jar
+    entryClass: autoscaling.MemoryTuneExample
     parallelism: 1
-    upgradeMode: last-state
-    args: ["10"]
+    upgradeMode: stateless

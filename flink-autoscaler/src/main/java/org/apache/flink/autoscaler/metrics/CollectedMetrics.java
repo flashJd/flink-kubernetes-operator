@@ -17,19 +17,35 @@
 
 package org.apache.flink.autoscaler.metrics;
 
+import org.apache.flink.runtime.clusterframework.types.ResourceID;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.NoArgsConstructor;
 
 import java.util.Map;
 
 /** Collected scaling metrics. */
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
 public class CollectedMetrics {
-    private Map<JobVertexID, Map<ScalingMetric, Double>> vertexMetrics;
-    private Map<Edge, Double> outputRatios;
+    private final Map<JobVertexID, Map<ScalingMetric, Double>> vertexMetrics;
+    private final Map<Edge, Double> outputRatios;
+
+    private final Map<ResourceID, Map<ScalingMetrics.TYPE, Long>> resourceFreeRate;
+
+    public CollectedMetrics() {
+        this(null, null);
+    }
+
+    public CollectedMetrics(Map<JobVertexID, Map<ScalingMetric, Double>> vertexMetrics,
+                            Map<Edge, Double> outputRatios) {
+        this(vertexMetrics, outputRatios, null);
+    }
+
+    public CollectedMetrics(Map<JobVertexID, Map<ScalingMetric, Double>> vertexMetrics,
+                            Map<Edge, Double> outputRatios,
+                            Map<ResourceID, Map<ScalingMetrics.TYPE, Long>> resourceFreeRate) {
+        this.vertexMetrics = vertexMetrics;
+        this.outputRatios = outputRatios;
+        this.resourceFreeRate = resourceFreeRate;
+    }
 }

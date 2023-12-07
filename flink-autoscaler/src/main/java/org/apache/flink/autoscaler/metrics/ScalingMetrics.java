@@ -17,11 +17,14 @@
 
 package org.apache.flink.autoscaler.metrics;
 
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.autoscaler.config.AutoScalerOptions;
 import org.apache.flink.autoscaler.topology.JobTopology;
 import org.apache.flink.autoscaler.utils.AutoScalerUtils;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.runtime.clusterframework.types.ResourceID;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
+import org.apache.flink.runtime.rest.messages.ResourceProfileInfo;
 import org.apache.flink.runtime.rest.messages.job.metrics.AggregatedMetric;
 
 import org.apache.commons.math3.util.Precision;
@@ -33,10 +36,18 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
+import static org.apache.flink.autoscaler.metrics.ScalingMetrics.TYPE.*;
+
 /** Utilities for computing scaling metrics based on Flink metrics. */
 public class ScalingMetrics {
 
     private static final Logger LOG = LoggerFactory.getLogger(ScalingMetrics.class);
+
+    /** Memory type */
+    public enum TYPE {
+        HEAP_FREE_RESOURCE,
+        HEAP_TOTAL_RESOURCE
+    }
 
     public static void computeLoadMetrics(
             JobVertexID jobVertexID,
@@ -46,6 +57,16 @@ public class ScalingMetrics {
 
         double busyTimeMsPerSecond = getBusyTimeMsPerSecond(flinkMetrics, conf, jobVertexID);
         scalingMetrics.put(ScalingMetric.LOAD, busyTimeMsPerSecond / 1000);
+    }
+
+    public static void computeRocksDBCacheHitMetrics(
+            Map<FlinkMetric, AggregatedMetric> flinkMetrics,
+            Map<ScalingMetric, Double> scalingMetrics) {
+        AggregatedMetric cacheHit = flinkMetrics.get(FlinkMetric.ROCKSDB_BLOCK_CACHE_HIT);
+        AggregatedMetric cacheMiss = flinkMetrics.get(FlinkMetric.ROCKSDB_BLOCK_CACHE_MISS);
+        if (cacheHit != null && cacheMiss != null) {
+            scalingMetrics.put(ScalingMetric.ROCKSDB_CACHE_HIT, cacheHit.getAvg() / cacheMiss.getAvg());
+        }
     }
 
     public static void computeDataRateMetrics(
@@ -158,6 +179,20 @@ public class ScalingMetrics {
         }
 
         return out;
+    }
+
+    public static Map<ResourceID, Map<TYPE, Long>> computeFreeRatios(
+            Map<ResourceID, Tuple2<Long, Long>> resourceProfiles) {
+        Map<ResourceID, Map<TYPE, Long>> freeRatios = new HashMap<>(resourceProfiles.size());
+        resourceProfiles.forEach((id, r) -> {
+                    long totalMem = r.f0;
+                    long freeMem = r.f1;
+                    Map<TYPE, Long> freeRes = new HashMap<>(2);
+                    freeRes.put(HEAP_FREE_RESOURCE, freeMem);
+                    freeRes.put(HEAP_TOTAL_RESOURCE, totalMem);
+                    freeRatios.put(id.getResourceID(), freeRes);
+                });
+        return freeRatios;
     }
 
     public static void computeLagMetrics(

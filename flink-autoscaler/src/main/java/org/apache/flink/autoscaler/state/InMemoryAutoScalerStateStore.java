@@ -31,6 +31,8 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static org.apache.flink.configuration.TaskManagerOptions.MANAGED_MEMORY_SIZE;
+
 /**
  * State store based on the Java Heap, the state will be discarded after process restarts.
  *
@@ -47,6 +49,10 @@ public class InMemoryAutoScalerStateStore<KEY, Context extends JobAutoScalerCont
 
     private final Map<KEY, Map<String, String>> parallelismOverridesStore;
 
+    private final Map<KEY, String> managedMemOverridesStore;
+
+    private final Map<KEY, String> processMemOverridesStore;
+
     private final Map<KEY, ScalingTracking> scalingTrackingStore;
 
     public InMemoryAutoScalerStateStore() {
@@ -54,6 +60,8 @@ public class InMemoryAutoScalerStateStore<KEY, Context extends JobAutoScalerCont
         collectedMetricsStore = new ConcurrentHashMap<>();
         parallelismOverridesStore = new ConcurrentHashMap<>();
         scalingTrackingStore = new ConcurrentHashMap<>();
+        managedMemOverridesStore = new ConcurrentHashMap<>();
+        processMemOverridesStore = new ConcurrentHashMap<>();
     }
 
     @Override
@@ -107,6 +115,26 @@ public class InMemoryAutoScalerStateStore<KEY, Context extends JobAutoScalerCont
     public void storeParallelismOverrides(
             Context jobContext, Map<String, String> parallelismOverrides) {
         parallelismOverridesStore.put(jobContext.getJobKey(), parallelismOverrides);
+    }
+
+    @Override
+    public void storeProcessMemOverrides(Context jobContext, String processMem) {
+        processMemOverridesStore.put(jobContext.getJobKey(), processMem);
+    }
+
+    @Override
+    public void storeManagedMemOverrides(Context jobContext, String managed) {
+        managedMemOverridesStore.put(jobContext.getJobKey(), managed);
+    }
+
+    @Override
+    public Optional<String> getProcessMemOverrides(Context jobContext) {
+        return Optional.ofNullable(processMemOverridesStore.get(jobContext.getJobKey()));
+    }
+
+    @Override
+    public Optional<String> getManagedMemOverrides(Context jobContext) {
+        return Optional.ofNullable(managedMemOverridesStore.get(jobContext.getJobKey()));
     }
 
     @Override

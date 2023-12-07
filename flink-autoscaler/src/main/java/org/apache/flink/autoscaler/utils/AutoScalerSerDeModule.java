@@ -17,14 +17,14 @@
 
 package org.apache.flink.autoscaler.utils;
 
+import com.fasterxml.jackson.core.JacksonException;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.*;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.autoscaler.metrics.Edge;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 
 import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.databind.DeserializationContext;
-import com.fasterxml.jackson.databind.JsonSerializer;
-import com.fasterxml.jackson.databind.KeyDeserializer;
-import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 
 import java.io.IOException;
@@ -38,6 +38,27 @@ public class AutoScalerSerDeModule extends SimpleModule {
 
         this.addKeySerializer(Edge.class, new EdgeKeySerializer());
         this.addKeyDeserializer(Edge.class, new EdgeKeyDeserializer());
+
+        this.addSerializer(Tuple2.class, new Tuple2Serializer());
+        this.addDeserializer(Tuple2.class, new Tuple2DeSerializer());
+    }
+
+    private static class Tuple2Serializer extends JsonSerializer<Tuple2> {
+
+        @Override
+        public void serialize(Tuple2 tuple2, JsonGenerator jgen, SerializerProvider provider)
+                throws IOException {
+            jgen.writeObject(tuple2.f0);
+            jgen.writeObject(tuple2.f1);
+        }
+    }
+
+    private static class Tuple2DeSerializer extends JsonDeserializer {
+
+        @Override
+        public Object deserialize(JsonParser jsonParser, DeserializationContext deserializationContext) throws IOException, JacksonException {
+            return null;
+        }
     }
 
     private static class JobVertexIdKeySerializer extends JsonSerializer<JobVertexID> {

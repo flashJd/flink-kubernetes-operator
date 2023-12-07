@@ -17,15 +17,22 @@
 
 package org.apache.flink.kubernetes.operator.autoscaler;
 
+import lombok.SneakyThrows;
 import org.apache.flink.autoscaler.realizer.ScalingRealizer;
 import org.apache.flink.configuration.ConfigurationUtils;
 import org.apache.flink.configuration.PipelineOptions;
 
 import io.javaoperatorsdk.operator.processing.event.ResourceID;
+import org.apache.flink.kubernetes.operator.api.spec.FlinkDeploymentSpec;
+import org.apache.flink.kubernetes.operator.api.spec.Resource;
+import org.apache.flink.kubernetes.operator.api.spec.TaskManagerSpec;
 
 import javax.annotation.Nullable;
 
+import java.lang.reflect.Field;
 import java.util.Map;
+
+import static org.apache.flink.configuration.TaskManagerOptions.TOTAL_PROCESS_MEMORY;
 
 /** The Kubernetes implementation for applying parallelism overrides. */
 public class KubernetesScalingRealizer
@@ -41,6 +48,29 @@ public class KubernetesScalingRealizer
                 .put(
                         PipelineOptions.PARALLELISM_OVERRIDES.key(),
                         getOverrideString(context, parallelismOverrides));
+    }
+
+    @Override
+    public void rescaleMem(KubernetesJobAutoScalerContext context, Map<String, String> memoryInfo) {
+        memoryInfo.forEach((k, v) -> {
+            if (TOTAL_PROCESS_MEMORY.key().equals(k)) {
+                TaskManagerSpec taskManagerSpec = getTaskManagerSpec(context);
+                Resource originResource = taskManagerSpec.getResource();
+                Resource newResource = new Resource(originResource.getCpu(), v, originResource.getEphemeralStorage());
+                taskManagerSpec.setResource(newResource);
+            } else {
+                context.getConfiguration().setString(k, v);
+                context.getResource().getSpec().getFlinkConfiguration().put(k, v);
+            }
+        });
+    }
+
+    @SneakyThrows
+    private TaskManagerSpec getTaskManagerSpec(KubernetesJobAutoScalerContext context) {
+        Field taskManagerField = FlinkDeploymentSpec.class.getDeclaredField("taskManager");
+        taskManagerField.setAccessible(true);
+        FlinkDeploymentSpec deploymentSpec = (FlinkDeploymentSpec) context.getResource().getSpec();
+        return (TaskManagerSpec) taskManagerField.get(deploymentSpec);
     }
 
     @Nullable

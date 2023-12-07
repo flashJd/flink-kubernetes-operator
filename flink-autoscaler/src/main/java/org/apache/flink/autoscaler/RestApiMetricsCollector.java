@@ -17,20 +17,27 @@
 
 package org.apache.flink.autoscaler;
 
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.autoscaler.metrics.FlinkMetric;
+import org.apache.flink.runtime.clusterframework.types.ResourceID;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
+import org.apache.flink.runtime.rest.handler.HandlerRequest;
+import org.apache.flink.runtime.rest.messages.ResourceProfileInfo;
+import org.apache.flink.runtime.rest.messages.EmptyMessageParameters;
 import org.apache.flink.runtime.rest.messages.EmptyRequestBody;
 import org.apache.flink.runtime.rest.messages.JobIDPathParameter;
 import org.apache.flink.runtime.rest.messages.JobVertexIdPathParameter;
-import org.apache.flink.runtime.rest.messages.job.metrics.AggregatedMetric;
-import org.apache.flink.runtime.rest.messages.job.metrics.AggregatedSubtaskMetricsHeaders;
-import org.apache.flink.runtime.rest.messages.job.metrics.AggregatedSubtaskMetricsParameters;
+import org.apache.flink.runtime.rest.messages.job.metrics.*;
 
 import lombok.SneakyThrows;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.flink.runtime.rest.messages.taskmanager.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.Field;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -48,6 +55,40 @@ public class RestApiMetricsCollector<KEY, Context extends JobAutoScalerContext<K
                         Collectors.toMap(
                                 Map.Entry::getKey,
                                 e -> queryAggregatedVertexMetrics(ctx, e.getKey(), e.getValue())));
+    }
+
+    @Override
+    @SneakyThrows
+    protected Map<ResourceID, Tuple2<Long, Long>> queryAllTaskManagerResourceProfiles(Context ctx) {
+        try (var restClient = ctx.getRestClusterClient()){
+            var taskManagersInfo = restClient.sendRequest(
+                    TaskManagersHeaders.getInstance(),
+                    EmptyMessageParameters.getInstance(),
+                    EmptyRequestBody.getInstance()).get();
+            var tms = taskManagersInfo.getTaskManagerInfos();
+            Map<ResourceID, Tuple2<Long, Long>> resourceProfiles = new HashMap(tms.size());
+            for (var taskManager : tms) {
+                var parameters = new TaskManagerMetricsMessageParameters();
+                var pathIt = parameters.getPathParameters().iterator();
+                ((TaskManagerIdPathParameter)pathIt.next()).resolve(taskManager.getResourceId());
+
+                var taskManagerDetail = restClient.sendRequest(TaskManagerDetailsHeaders.getInstance(),
+                        parameters, EmptyRequestBody.getInstance()).get();
+                var tmMetric = taskManagerDetail.getTaskManagerMetricsInfo();
+                long heapUsed = getMetricItem(tmMetric, "heapUsed");
+                long heapMax = getMetricItem(tmMetric, "heapMax");
+                resourceProfiles.put(taskManager.getResourceId(),
+                        Tuple2.of(heapMax, heapMax-heapUsed));
+            }
+            return resourceProfiles;
+        }
+    }
+
+    private long getMetricItem(TaskManagerMetricsInfo metricsInfo, String item)
+            throws NoSuchFieldException, IllegalAccessException {
+        Field field = TaskManagerMetricsInfo.class.getDeclaredField(item);
+        field.setAccessible(true);
+        return (long) field.get(metricsInfo);
     }
 
     @SneakyThrows

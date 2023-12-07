@@ -20,6 +20,7 @@ package org.apache.flink.autoscaler.config;
 import org.apache.flink.autoscaler.metrics.MetricAggregator;
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ConfigOptions;
+import org.apache.flink.configuration.MemorySize;
 
 import java.time.Duration;
 import java.util.List;
@@ -266,4 +267,39 @@ public class AutoScalerOptions {
                     .durationType()
                     .defaultValue(Duration.ofSeconds(10))
                     .withDescription("The timeout for waiting the flink rest client to return.");
+
+    public static final ConfigOption<MemorySize> FLINK_TM_FREE_MEMORY =
+            autoScalerConfig("flink.tm.free-heap-memory")
+                    .memoryType()
+                    .noDefaultValue()
+                    .withDescription("The free heap memory of tm can be allocated to managed.");
+
+    public static final ConfigOption<MemorySize> FLINK_TM_TOTAL_HEAP_MEMORY =
+            autoScalerConfig("flink.tm.total-heap-memory")
+                    .memoryType()
+                    .noDefaultValue()
+                    .withDescription("The total heap memory of tm can be allocated to managed.");
+
+    public static final ConfigOption<Float> FLINK_MANAGED_HIT_RATIO =
+            autoScalerConfig("flink.managed.hit.ratio")
+                    .floatType()
+                    .defaultValue(0.5f)
+                    .withDescription("The hit ratio of managed need to be hit.");
+
+    public static final ConfigOption<Float> FLINK_HEAP_FULL_RATIO =
+            autoScalerConfig("flink.tm.heap.full.ratio")
+                    .floatType()
+                    .defaultValue(0.8f)
+                    .withDescription("The full ratio memory need to boast.");
+
+    public static final ConfigOption<Float> FLINK_TM_MEM_BOAST_RATIO =
+            autoScalerConfig("flink.tm.mem.boast.ratio")
+                    .floatType()
+                    .defaultValue(0.2f)
+                    .withDescription("The boast ratio of heap memory.");
+    public static final ConfigOption<Float> FLINK_MANAGED_MEM_BOAST_RATIO =
+            autoScalerConfig("flink.managed.mem.boast.ratio")
+                    .floatType()
+                    .defaultValue(0.2f)
+                    .withDescription("The boast ratio of managed memory.");
 }

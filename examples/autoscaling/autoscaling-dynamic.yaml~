@@ -19,23 +19,18 @@
 apiVersion: flink.apache.org/v1beta1
 kind: FlinkDeployment
 metadata:
-  name: autoscaling-example
+  name: autoscaling-dynamic
 spec:
-  image: localhost:5000/autoscaling-example
+  image: autoscaling-example
   flinkVersion: v1_18
   flinkConfiguration:
     job.autoscaler.enabled: "true"
     job.autoscaler.stabilization.interval: "1m"
-    job.autoscaler.metrics.window: "3m"
-    pipeline.max-parallelism: "24"
+    job.autoscaler.metrics.window: "15m"
+    job.autoscaler.target.utilization: "0.5"
+    job.autoscaler.target.utilization.boundary: "0.3"
+    pipeline.max-parallelism: "32"
     taskmanager.numberOfTaskSlots: "4"
-    state.savepoints.dir: file:///flink-data/savepoints
-    state.checkpoints.dir: file:///flink-data/checkpoints
-    high-availability.type: kubernetes
-    high-availability.storageDir: file:///flink-data/ha
-    execution.checkpointing.interval: "1m"
-    jobmanager.scheduler: adaptive
-    job.autoscaler.target.utilization.boundary: "0.1"
   serviceAccount: flink
   jobManager:
     resource:
@@ -49,18 +44,13 @@ spec:
     spec:
       containers:
         - name: flink-main-container
-          volumeMounts:
-            - mountPath: /flink-data
-              name: flink-volume
-      volumes:
-        - name: flink-volume
-          # Flink is designed to run as a specific user with restricted privileges.
-          # The owner of the host path should be set to "flink" with the user ID (UID) of 9999.
-          hostPath:
-            path: /tmp/
-            type: Directory
   job:
     jarURI: local:///opt/flink/usrlib/autoscaling.jar
+    entryClass: autoscaling.LoadSimulationPipeline
     parallelism: 1
-    upgradeMode: last-state
-    args: ["10"]
+    upgradeMode: stateless
+    args:
+    - --maxLoadPerTask
+    - "1;2;4;8;16;\n16;8;4;2;1\n8;4;16;1;2"
+    - --repeatsAfterMinutes
+    - "60"

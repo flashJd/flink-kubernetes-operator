@@ -18,15 +18,14 @@
 package org.apache.flink.autoscaler;
 
 import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.autoscaler.config.AutoScalerOptions;
-import org.apache.flink.autoscaler.metrics.CollectedMetricHistory;
-import org.apache.flink.autoscaler.metrics.CollectedMetrics;
-import org.apache.flink.autoscaler.metrics.Edge;
-import org.apache.flink.autoscaler.metrics.EvaluatedScalingMetric;
-import org.apache.flink.autoscaler.metrics.ScalingMetric;
+import org.apache.flink.autoscaler.metrics.*;
 import org.apache.flink.autoscaler.topology.JobTopology;
 import org.apache.flink.autoscaler.utils.AutoScalerUtils;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.MemorySize;
+import org.apache.flink.runtime.clusterframework.types.ResourceID;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 
 import org.apache.commons.math3.stat.StatUtils;
@@ -41,21 +40,10 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.SortedMap;
 
-import static org.apache.flink.autoscaler.config.AutoScalerOptions.BACKLOG_PROCESSING_LAG_THRESHOLD;
-import static org.apache.flink.autoscaler.config.AutoScalerOptions.TARGET_UTILIZATION;
-import static org.apache.flink.autoscaler.config.AutoScalerOptions.TARGET_UTILIZATION_BOUNDARY;
-import static org.apache.flink.autoscaler.metrics.ScalingMetric.CATCH_UP_DATA_RATE;
-import static org.apache.flink.autoscaler.metrics.ScalingMetric.CURRENT_PROCESSING_RATE;
-import static org.apache.flink.autoscaler.metrics.ScalingMetric.LAG;
-import static org.apache.flink.autoscaler.metrics.ScalingMetric.LOAD;
-import static org.apache.flink.autoscaler.metrics.ScalingMetric.MAX_PARALLELISM;
-import static org.apache.flink.autoscaler.metrics.ScalingMetric.OBSERVED_TPR;
-import static org.apache.flink.autoscaler.metrics.ScalingMetric.PARALLELISM;
-import static org.apache.flink.autoscaler.metrics.ScalingMetric.SCALE_DOWN_RATE_THRESHOLD;
-import static org.apache.flink.autoscaler.metrics.ScalingMetric.SCALE_UP_RATE_THRESHOLD;
-import static org.apache.flink.autoscaler.metrics.ScalingMetric.SOURCE_DATA_RATE;
-import static org.apache.flink.autoscaler.metrics.ScalingMetric.TARGET_DATA_RATE;
-import static org.apache.flink.autoscaler.metrics.ScalingMetric.TRUE_PROCESSING_RATE;
+import static org.apache.flink.autoscaler.config.AutoScalerOptions.*;
+import static org.apache.flink.autoscaler.metrics.ScalingMetric.*;
+import static org.apache.flink.autoscaler.metrics.ScalingMetrics.TYPE.HEAP_FREE_RESOURCE;
+import static org.apache.flink.autoscaler.metrics.ScalingMetrics.TYPE.HEAP_TOTAL_RESOURCE;
 
 /** Job scaling evaluator for autoscaler. */
 public class ScalingMetricEvaluator {
@@ -85,6 +73,48 @@ public class ScalingMetricEvaluator {
         }
 
         return scalingOutput;
+    }
+
+    public Tuple2<Boolean, Boolean> needBoastMemory(Configuration conf, CollectedMetricHistory collectedMetrics) {
+        Tuple2<Long, Long> minFreeMem = getMinHistoryFreeMB(collectedMetrics.getMetricHistory());
+        conf.set(FLINK_TM_FREE_MEMORY, MemorySize.ofMebiBytes(minFreeMem.f1));
+        conf.set(FLINK_TM_TOTAL_HEAP_MEMORY, MemorySize.ofMebiBytes(minFreeMem.f0));
+
+        double fullRatio = (minFreeMem.f0-minFreeMem.f1)/(double)minFreeMem.f0;
+        if (conf.get(FLINK_HEAP_FULL_RATIO) < fullRatio) {
+            return Tuple2.of(true, false);
+        }
+
+        for (JobVertexID vertexID : collectedMetrics.getJobTopology().getVerticesInTopologicalOrder()) {
+            double cacheHit = getAverage(ROCKSDB_CACHE_HIT, vertexID, collectedMetrics.getMetricHistory());
+            if (cacheHit < conf.get(FLINK_MANAGED_HIT_RATIO)) {
+                return Tuple2.of(false, true);
+            }
+        }
+        return Tuple2.of(false, false);
+    }
+
+    private Tuple2<Long, Long> getMinHistoryFreeMB(SortedMap<Instant, CollectedMetrics> resource) {
+        Tuple2<Long, Long> minFreeHeap = Tuple2.of(Long.MAX_VALUE, Long.MAX_VALUE);
+        for (Map.Entry<Instant, CollectedMetrics> metricsEntry : resource.entrySet()) {
+            Tuple2<Long, Long> timeMinFree = getMinTMFreeMem(metricsEntry.getValue().getResourceFreeRate());
+            if (timeMinFree.f1 < minFreeHeap.f1) {
+                minFreeHeap = timeMinFree;
+            }
+        }
+        return minFreeHeap;
+    }
+
+    private Tuple2<Long, Long> getMinTMFreeMem(Map<ResourceID, Map<ScalingMetrics.TYPE, Long>> tmRes) {
+        Tuple2<Long, Long> minFreeHeap = Tuple2.of(Long.MAX_VALUE, Long.MAX_VALUE);
+        for (Map.Entry<ResourceID, Map<ScalingMetrics.TYPE, Long>> tmResItem : tmRes.entrySet()) {
+            Map<ScalingMetrics.TYPE, Long> res = tmResItem.getValue();
+            Long freeResource = res.get(HEAP_FREE_RESOURCE);
+            if (freeResource < minFreeHeap.f1) {
+                minFreeHeap = Tuple2.of(res.get(HEAP_TOTAL_RESOURCE), freeResource);
+            }
+        }
+        return minFreeHeap;
     }
 
     @VisibleForTesting

@@ -19,6 +19,7 @@ package org.apache.flink.autoscaler;
 
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.JobStatus;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.autoscaler.config.AutoScalerOptions;
 import org.apache.flink.autoscaler.event.AutoScalerEventHandler;
 import org.apache.flink.autoscaler.exceptions.NotReadyException;
@@ -109,6 +110,7 @@ public class JobAutoScalerImpl<KEY, Context extends JobAutoScalerContext<KEY>>
         } catch (Throwable e) {
             onError(ctx, autoscalerMetrics, e);
         } finally {
+            applyMemoryOverrides(ctx);
             applyParallelismOverrides(ctx);
         }
     }
@@ -125,6 +127,10 @@ public class JobAutoScalerImpl<KEY, Context extends JobAutoScalerContext<KEY>>
     @VisibleForTesting
     protected Map<String, String> getParallelismOverrides(Context ctx) throws Exception {
         return stateStore.getParallelismOverrides(ctx);
+    }
+
+    protected void applyMemoryOverrides(Context ctx) throws Exception {
+        scalingRealizer.rescaleMem(ctx, stateStore.getMemOverrides(ctx));
     }
 
     /**
@@ -202,7 +208,17 @@ public class JobAutoScalerImpl<KEY, Context extends JobAutoScalerContext<KEY>>
                 scalingExecutor.scaleResource(
                         ctx, evaluatedMetrics, scalingHistory, scalingTracking, now);
 
-        if (parallelismChanged) {
+        Tuple2<Boolean, Boolean> heapOrManageBoast = evaluator.needBoastMemory(ctx.getConfiguration(), collectedMetrics);
+
+        if (heapOrManageBoast.f0) {
+            scalingExecutor.boastProcessMemory(ctx);
+        }
+
+        if (heapOrManageBoast.f1) {
+            scalingExecutor.boastManagedMemory(ctx);
+        }
+
+        if (parallelismChanged || heapOrManageBoast.f0 || heapOrManageBoast.f1) {
             autoscalerMetrics.incrementScaling();
         } else {
             autoscalerMetrics.incrementBalanced();
