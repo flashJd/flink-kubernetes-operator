@@ -40,7 +40,9 @@ import javax.annotation.Nullable;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.SortedMap;
 
@@ -56,6 +58,7 @@ import static org.apache.flink.autoscaler.metrics.ScalingMetric.LOAD;
 import static org.apache.flink.autoscaler.metrics.ScalingMetric.MAX_PARALLELISM;
 import static org.apache.flink.autoscaler.metrics.ScalingMetric.OBSERVED_TPR;
 import static org.apache.flink.autoscaler.metrics.ScalingMetric.PARALLELISM;
+import static org.apache.flink.autoscaler.metrics.ScalingMetric.ROCKSDB_CACHE_HIT_RATIO;
 import static org.apache.flink.autoscaler.metrics.ScalingMetric.SCALE_DOWN_RATE_THRESHOLD;
 import static org.apache.flink.autoscaler.metrics.ScalingMetric.SCALE_UP_RATE_THRESHOLD;
 import static org.apache.flink.autoscaler.metrics.ScalingMetric.SOURCE_DATA_RATE;
@@ -76,7 +79,8 @@ public class ScalingMetricEvaluator {
 
         boolean processingBacklog = isProcessingBacklog(topology, metricsHistory, conf);
 
-        for (var vertex : topology.getVerticesInTopologicalOrder()) {
+        var vertexIDS = topology.getVerticesInTopologicalOrder();
+        for (var vertex : vertexIDS) {
             scalingOutput.put(
                     vertex,
                     evaluateMetrics(
@@ -89,7 +93,7 @@ public class ScalingMetricEvaluator {
                             restartTime));
         }
 
-        var globalMetrics = evaluateGlobalMetrics(metricsHistory);
+        var globalMetrics = evaluateGlobalMetrics(vertexIDS, metricsHistory);
         return new EvaluatedMetrics(scalingOutput, globalMetrics);
     }
 
@@ -309,6 +313,13 @@ public class ScalingMetricEvaluator {
     @VisibleForTesting
     protected static Map<ScalingMetric, EvaluatedScalingMetric> evaluateGlobalMetrics(
             SortedMap<Instant, CollectedMetrics> metricHistory) {
+        return evaluateGlobalMetrics(null, metricHistory);
+    }
+
+    @VisibleForTesting
+    protected static Map<ScalingMetric, EvaluatedScalingMetric> evaluateGlobalMetrics(
+            @Nullable List<JobVertexID> vertexIDS,
+            SortedMap<Instant, CollectedMetrics> metricHistory) {
         var latest = metricHistory.get(metricHistory.lastKey()).getGlobalMetrics();
         var out = new HashMap<ScalingMetric, EvaluatedScalingMetric>();
 
@@ -320,7 +331,25 @@ public class ScalingMetricEvaluator {
                 HEAP_USAGE,
                 new EvaluatedScalingMetric(
                         lastHeapUsage, getAverageGlobalMetric(HEAP_USAGE, metricHistory)));
+
+        if (vertexIDS != null) {
+            out.put(
+                    ROCKSDB_CACHE_HIT_RATIO,
+                    new EvaluatedScalingMetric(Double.NaN, getCacheHit(vertexIDS, metricHistory)));
+        }
         return out;
+    }
+
+    private static double getCacheHit(
+            List<JobVertexID> vertexIDS, SortedMap<Instant, CollectedMetrics> metricHistory) {
+        double cacheHit = 1;
+        for (var vertexId : vertexIDS) {
+            double currentHit = getAverage(ROCKSDB_CACHE_HIT_RATIO, vertexId, metricHistory);
+            if (!Objects.equals(Double.NaN, currentHit)) {
+                cacheHit = Math.min(cacheHit, currentHit);
+            }
+        }
+        return cacheHit;
     }
 
     private static double getAverageGlobalMetric(

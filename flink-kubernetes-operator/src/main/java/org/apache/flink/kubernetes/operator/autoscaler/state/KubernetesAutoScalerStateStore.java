@@ -67,6 +67,10 @@ public class KubernetesAutoScalerStateStore
     @VisibleForTesting
     protected static final String PARALLELISM_OVERRIDES_KEY = "parallelismOverrides";
 
+    @VisibleForTesting protected static final String MANAGED_OVERRIDES_KEY = "managedOverrides";
+
+    @VisibleForTesting protected static final String MEMORY_PRESSURE_KEY = "underMemoryPressure";
+
     @VisibleForTesting protected static final int MAX_CM_BYTES = 1000000;
 
     protected static final ObjectMapper YAML_MAPPER =
@@ -168,6 +172,34 @@ public class KubernetesAutoScalerStateStore
     @Override
     public void removeCollectedMetrics(KubernetesJobAutoScalerContext jobContext) {
         configMapStore.removeSerializedState(jobContext, COLLECTED_METRICS_KEY);
+    }
+
+    @Override
+    public void setMemoryUnderPressure(KubernetesJobAutoScalerContext jobContext) {
+        configMapStore.putSerializedState(jobContext, MEMORY_PRESSURE_KEY, MEMORY_PRESSURE_KEY);
+    }
+
+    @Override
+    public void removeMemoryUnderPressure(KubernetesJobAutoScalerContext jobContext) {
+        configMapStore.removeSerializedState(jobContext, MEMORY_PRESSURE_KEY);
+    }
+
+    @Override
+    public boolean isMemoryUnderPressure(KubernetesJobAutoScalerContext jobContext) {
+        Optional<String> memoryUnderPressure =
+                configMapStore.getSerializedState(jobContext, MEMORY_PRESSURE_KEY);
+        return memoryUnderPressure.isPresent();
+    }
+
+    @Override
+    public void storeManagedMemOverrides(
+            KubernetesJobAutoScalerContext jobContext, String managed) {
+        configMapStore.putSerializedState(jobContext, MANAGED_OVERRIDES_KEY, managed);
+    }
+
+    @Override
+    public Optional<String> getManagedMemOverrides(KubernetesJobAutoScalerContext jobContext) {
+        return configMapStore.getSerializedState(jobContext, MANAGED_OVERRIDES_KEY);
     }
 
     @Override

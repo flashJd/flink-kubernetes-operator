@@ -282,6 +282,9 @@ public abstract class ScalingMetricCollector<KEY, Context extends JobAutoScalerC
                     ScalingMetrics.computeLoadMetrics(
                             jobVertexID, vertexFlinkMetrics, vertexScalingMetrics, conf);
 
+                    ScalingMetrics.computeRocksDBCacheHitMetrics(
+                            vertexFlinkMetrics, vertexScalingMetrics);
+
                     var metricHistory =
                             histories.getOrDefault(jobKey, Collections.emptySortedMap());
                     double lagGrowthRate =
@@ -426,6 +429,12 @@ public abstract class ScalingMetricCollector<KEY, Context extends JobAutoScalerC
         var requiredMetrics = new HashSet<FlinkMetric>();
 
         requiredMetrics.add(FlinkMetric.BUSY_TIME_PER_SEC);
+
+        if (FlinkMetric.ROCKSDB_BLOCK_CACHE_HIT.findAny(allMetricNames).isPresent()
+                && FlinkMetric.ROCKSDB_BLOCK_CACHE_MISS.findAny(allMetricNames).isPresent()) {
+            requiredMetrics.add(FlinkMetric.ROCKSDB_BLOCK_CACHE_HIT);
+            requiredMetrics.add(FlinkMetric.ROCKSDB_BLOCK_CACHE_MISS);
+        }
 
         if (topology.isSource(jobVertexID)) {
             requiredMetrics.add(FlinkMetric.BACKPRESSURE_TIME_PER_SEC);
