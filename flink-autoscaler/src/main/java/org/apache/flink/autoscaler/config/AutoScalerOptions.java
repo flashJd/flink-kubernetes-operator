@@ -234,6 +234,15 @@ public class AutoScalerOptions {
                     .withDescription(
                             "Processing rate increase threshold for detecting ineffective scaling threshold. 0.1 means if we do not accomplish at least 10% of the desired capacity increase with scaling, the action is marked ineffective.");
 
+    public static final ConfigOption<Integer> SCALING_EFFECTIVENESS_HISTORY_REFERENCE_NUM =
+            autoScalerConfig("scaling.effectiveness.history.reference.num")
+                    .intType()
+                    .defaultValue(3)
+                    .withFallbackKeys(
+                            oldOperatorConfigKey("scaling.effectiveness.history.reference.num"))
+                    .withDescription(
+                            "Reference num of history scaling up summaries to evaluate the effectiveness.");
+
     public static final ConfigOption<Double> GC_PRESSURE_THRESHOLD =
             autoScalerConfig("memory.gc-pressure.threshold")
                     .doubleType()

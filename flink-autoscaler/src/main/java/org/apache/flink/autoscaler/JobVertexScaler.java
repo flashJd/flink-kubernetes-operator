@@ -34,12 +34,15 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.SortedMap;
+import java.util.TreeMap;
 
 import static org.apache.flink.autoscaler.config.AutoScalerOptions.MAX_SCALE_DOWN_FACTOR;
 import static org.apache.flink.autoscaler.config.AutoScalerOptions.MAX_SCALE_UP_FACTOR;
 import static org.apache.flink.autoscaler.config.AutoScalerOptions.SCALE_UP_GRACE_PERIOD;
+import static org.apache.flink.autoscaler.config.AutoScalerOptions.SCALING_EFFECTIVENESS_HISTORY_REFERENCE_NUM;
 import static org.apache.flink.autoscaler.config.AutoScalerOptions.SCALING_EVENT_INTERVAL;
 import static org.apache.flink.autoscaler.config.AutoScalerOptions.TARGET_UTILIZATION;
 import static org.apache.flink.autoscaler.config.AutoScalerOptions.VERTEX_MAX_PARALLELISM;
@@ -163,15 +166,19 @@ public class JobVertexScaler<KEY, Context extends JobAutoScalerContext<KEY>> {
         var lastScalingTs = history.lastKey();
         var lastSummary = history.get(lastScalingTs);
 
-        if (currentParallelism == lastSummary.getNewParallelism() && lastSummary.isScaledUp()) {
-            if (scaledUp) {
-                return detectIneffectiveScaleUp(
-                        context, vertex, conf, evaluatedMetrics, lastSummary);
-            } else {
+        if (currentParallelism != lastSummary.getNewParallelism()) {
+            LOG.warn(
+                    "Current parallelism is not equal to last summary's expected new parallelism, maybe the parallelism is modified manually");
+            return false;
+        }
+        if (!scaledUp) {
+            if (lastSummary.isScaledUp()) {
                 return detectImmediateScaleDownAfterScaleUp(vertex, conf, lastScalingTs);
+            } else {
+                return false;
             }
         }
-        return false;
+        return detectIneffectiveScaleUp(context, vertex, conf, evaluatedMetrics, history);
     }
 
     private boolean detectImmediateScaleDownAfterScaleUp(
@@ -193,22 +200,55 @@ public class JobVertexScaler<KEY, Context extends JobAutoScalerContext<KEY>> {
             JobVertexID vertex,
             Configuration conf,
             Map<ScalingMetric, EvaluatedScalingMetric> evaluatedMetrics,
-            ScalingSummary lastSummary) {
+            SortedMap<Instant, ScalingSummary> history) {
+        ScalingSummary lastSummary;
+        double lastProcRate, lastExpectedProcRate, accumulativeEffectiveRatio = 0;
+        double currentProcRate = evaluatedMetrics.get(TRUE_PROCESSING_RATE).getAverage();
+        int lastExpectedParallelism;
+        int currentParallelism = (int) evaluatedMetrics.get(PARALLELISM).getCurrent();
+        int configuredRefNum = conf.getInteger(SCALING_EFFECTIVENESS_HISTORY_REFERENCE_NUM);
+        int currentRefNum = 0;
+        Iterator<Map.Entry<Instant, ScalingSummary>> entryIt =
+                new TreeMap<>(history).descendingMap().entrySet().iterator();
+        while (entryIt.hasNext() && currentRefNum < configuredRefNum) {
+            Map.Entry<Instant, ScalingSummary> entry = entryIt.next();
+            lastSummary = entry.getValue();
+            lastProcRate = lastSummary.getMetrics().get(TRUE_PROCESSING_RATE).getAverage();
+            lastExpectedProcRate =
+                    lastSummary.getMetrics().get(EXPECTED_PROCESSING_RATE).getCurrent();
+            lastExpectedParallelism = lastSummary.getNewParallelism();
+            // If parallelism is modified manually, skip
+            if (currentParallelism != lastExpectedParallelism) {
+                currentProcRate = lastProcRate;
+                currentParallelism = lastSummary.getCurrentParallelism();
+                continue;
+            }
+            currentParallelism = lastSummary.getCurrentParallelism();
 
-        double lastProcRate = lastSummary.getMetrics().get(TRUE_PROCESSING_RATE).getAverage();
-        double lastExpectedProcRate =
-                lastSummary.getMetrics().get(EXPECTED_PROCESSING_RATE).getCurrent();
-        var currentProcRate = evaluatedMetrics.get(TRUE_PROCESSING_RATE).getAverage();
+            if (lastSummary.isScaledUp()) {
+                double expectedIncrease = lastExpectedProcRate - lastProcRate;
+                double actualIncrease = currentProcRate - lastProcRate;
+                accumulativeEffectiveRatio += (actualIncrease / expectedIncrease);
+                currentRefNum++;
+            }
+            currentProcRate = lastProcRate;
+        }
+
+        if (currentRefNum < configuredRefNum) {
+            LOG.warn(
+                    "Current num of scaling up summary is {}, less than the config {}:{}, do not evaluate the effectiveness.",
+                    currentRefNum,
+                    SCALING_EFFECTIVENESS_HISTORY_REFERENCE_NUM.key(),
+                    configuredRefNum);
+            return false;
+        }
 
         // To judge the effectiveness of the scale up operation we compute how much of the expected
         // increase actually happened. For example if we expect a 100 increase in proc rate and only
         // got an increase of 10 we only accomplished 10% of the desired increase. If this number is
         // below the threshold, we mark the scaling ineffective.
-        double expectedIncrease = lastExpectedProcRate - lastProcRate;
-        double actualIncrease = currentProcRate - lastProcRate;
-
         boolean withinEffectiveThreshold =
-                (actualIncrease / expectedIncrease)
+                (accumulativeEffectiveRatio / configuredRefNum)
                         >= conf.get(AutoScalerOptions.SCALING_EFFECTIVENESS_THRESHOLD);
         if (withinEffectiveThreshold) {
             return false;
@@ -226,10 +266,10 @@ public class JobVertexScaler<KEY, Context extends JobAutoScalerContext<KEY>> {
 
         if (conf.get(AutoScalerOptions.SCALING_EFFECTIVENESS_DETECTION_ENABLED)) {
             LOG.warn(
-                    "Ineffective scaling detected for {}, expected increase {}, actual {}",
+                    "Ineffective scaling detected for {}, configured effectiveness threshold {}, actual effectiveness ratio {}",
                     vertex,
-                    expectedIncrease,
-                    actualIncrease);
+                    conf.get(AutoScalerOptions.SCALING_EFFECTIVENESS_THRESHOLD),
+                    accumulativeEffectiveRatio / configuredRefNum);
             return true;
         } else {
             return false;
