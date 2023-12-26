@@ -159,6 +159,18 @@
             <td>Time interval to resend the identical event</td>
         </tr>
         <tr>
+            <td><h5>job.autoscaler.scaling.speculative.enabled</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>Enable scaling speculative execution based on history scaling summaries.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.scaling.speculative.strategy</h5></td>
+            <td style="word-wrap: break-word;">"org.apache.flink.autoscaler.speculate.strategy.SameDayOfLastWeekSpeculateStrategy"</td>
+            <td>String</td>
+            <td>Specific strategy class used to do speculative execution.</td>
+        </tr>
+        <tr>
             <td><h5>job.autoscaler.stabilization.interval</h5></td>
             <td style="word-wrap: break-word;">5 min</td>
             <td>Duration</td>

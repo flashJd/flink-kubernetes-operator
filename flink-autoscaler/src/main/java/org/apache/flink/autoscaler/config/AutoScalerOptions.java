@@ -18,6 +18,7 @@
 package org.apache.flink.autoscaler.config;
 
 import org.apache.flink.autoscaler.metrics.MetricAggregator;
+import org.apache.flink.autoscaler.speculate.strategy.SameDayOfLastWeekSpeculateStrategy;
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ConfigOptions;
 
@@ -304,4 +305,19 @@ public class AutoScalerOptions {
                     .defaultValue(Duration.ofSeconds(10))
                     .withFallbackKeys(oldOperatorConfigKey("flink.rest-client.timeout"))
                     .withDescription("The timeout for waiting the flink rest client to return.");
+
+    public static final ConfigOption<Boolean> SCALING_SPECULATIVE_ENABLED =
+            autoScalerConfig("scaling.speculative.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withFallbackKeys(oldOperatorConfigKey("scaling.speculative.enabled"))
+                    .withDescription(
+                            "Enable scaling speculative execution based on history scaling summaries.");
+
+    public static final ConfigOption<String> SCALING_SPECULATIVE_STRATEGY =
+            autoScalerConfig("scaling.speculative.strategy")
+                    .stringType()
+                    .defaultValue(SameDayOfLastWeekSpeculateStrategy.class.getName())
+                    .withFallbackKeys(oldOperatorConfigKey("scaling.speculative.strategy"))
+                    .withDescription("Specific strategy class used to do speculative execution.");
 }

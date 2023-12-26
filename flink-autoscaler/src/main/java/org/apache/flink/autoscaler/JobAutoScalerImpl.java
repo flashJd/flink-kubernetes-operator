@@ -25,7 +25,9 @@ import org.apache.flink.autoscaler.exceptions.NotReadyException;
 import org.apache.flink.autoscaler.metrics.AutoscalerFlinkMetrics;
 import org.apache.flink.autoscaler.metrics.EvaluatedMetrics;
 import org.apache.flink.autoscaler.realizer.ScalingRealizer;
+import org.apache.flink.autoscaler.speculate.strategy.SpeculativeStrategy;
 import org.apache.flink.autoscaler.state.AutoScalerStateStore;
+import org.apache.flink.autoscaler.utils.ReflectionUtils;
 import org.apache.flink.configuration.PipelineOptions;
 import org.apache.flink.util.Preconditions;
 
@@ -38,6 +40,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.apache.flink.autoscaler.config.AutoScalerOptions.AUTOSCALER_ENABLED;
+import static org.apache.flink.autoscaler.config.AutoScalerOptions.SCALING_SPECULATIVE_ENABLED;
+import static org.apache.flink.autoscaler.config.AutoScalerOptions.SCALING_SPECULATIVE_STRATEGY;
 import static org.apache.flink.autoscaler.metrics.AutoscalerFlinkMetrics.initRecommendedParallelism;
 import static org.apache.flink.autoscaler.metrics.AutoscalerFlinkMetrics.resetRecommendedParallelism;
 import static org.apache.flink.autoscaler.metrics.ScalingHistoryUtils.getTrimmedScalingHistory;
@@ -157,6 +161,15 @@ public class JobAutoScalerImpl<KEY, Context extends JobAutoScalerContext<KEY>>
     private void runScalingLogic(Context ctx, AutoscalerFlinkMetrics autoscalerMetrics)
             throws Exception {
 
+        var now = clock.instant();
+        if (ctx.getConfiguration().getBoolean(SCALING_SPECULATIVE_ENABLED)) {
+            String strategyClass = ctx.getConfiguration().getString(SCALING_SPECULATIVE_STRATEGY);
+            SpeculativeStrategy strategy = ReflectionUtils.loadClass(strategyClass);
+            if (strategy.triggerSpeculativeScalingExecution(stateStore, ctx, now)) {
+                return;
+            }
+        }
+
         var collectedMetrics = metricsCollector.updateMetrics(ctx, stateStore);
         var jobTopology = collectedMetrics.getJobTopology();
 
@@ -165,7 +178,6 @@ public class JobAutoScalerImpl<KEY, Context extends JobAutoScalerContext<KEY>>
         }
         LOG.debug("Collected metrics: {}", collectedMetrics);
 
-        var now = clock.instant();
         // Scaling tracking data contains previous restart times that are taken into account
         var scalingTracking = getTrimmedScalingTracking(stateStore, ctx, now);
         var restartTime = scalingTracking.getMaxRestartTimeOrDefault(ctx.getConfiguration());
