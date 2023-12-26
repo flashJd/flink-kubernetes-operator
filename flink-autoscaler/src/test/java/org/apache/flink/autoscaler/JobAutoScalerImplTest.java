@@ -46,6 +46,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -56,6 +57,7 @@ import java.util.TreeMap;
 import static org.apache.flink.autoscaler.TestingAutoscalerUtils.createDefaultJobAutoScalerContext;
 import static org.apache.flink.autoscaler.config.AutoScalerOptions.AUTOSCALER_ENABLED;
 import static org.apache.flink.autoscaler.config.AutoScalerOptions.SCALING_ENABLED;
+import static org.apache.flink.autoscaler.config.AutoScalerOptions.SCALING_SPECULATIVE_ENABLED;
 import static org.apache.flink.autoscaler.config.AutoScalerOptions.VERTEX_SCALING_HISTORY_AGE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -327,5 +329,208 @@ public class JobAutoScalerImplTest {
         }
         assertThat(scalingEvent).isNotNull();
         assertEquals(expectedOverrides, scalingEvent.getParallelismOverrides());
+    }
+
+    @Test
+    void testAutoscalingSpeculateEnabled() throws Exception {
+        context.getConfiguration().setBoolean(SCALING_SPECULATIVE_ENABLED, true);
+        context.getConfiguration().set(VERTEX_SCALING_HISTORY_AGE, Duration.ofDays(8));
+
+        var scalingHistory = new TreeMap<Instant, ScalingSummary>();
+        var now = Instant.now();
+        var lastSummaryInstant = now.minusSeconds(9 * 60);
+        scalingHistory.put(lastSummaryInstant, new ScalingSummary(2, 4, null));
+        var lastWeekSummaryInstant = lastSummaryInstant.minus(7, ChronoUnit.DAYS);
+        scalingHistory.put(lastWeekSummaryInstant, new ScalingSummary(2, 4, null));
+        var lastweekReferSummaryInstant = now.plusSeconds(9 * 60).minus(7, ChronoUnit.DAYS);
+        scalingHistory.put(lastweekReferSummaryInstant, new ScalingSummary(4, 8, null));
+
+        var vertex = new JobVertexID();
+        stateStore.storeScalingHistory(context, Map.of(vertex, scalingHistory));
+        assertFalse(stateStore.getScalingHistory(context).isEmpty());
+
+        var autoscaler =
+                new JobAutoScalerImpl<>(
+                        null, null, null, eventCollector, scalingRealizer, stateStore);
+        autoscaler.scale(context);
+        assertEquals(stateStore.getParallelismOverrides(context).get(vertex.toString()), "8");
+    }
+
+    @Test
+    void testAutoscalingSpeculatePreconditionNotSatisfied() throws Exception {
+        context.getConfiguration().setBoolean(SCALING_SPECULATIVE_ENABLED, true);
+        context.getConfiguration().set(VERTEX_SCALING_HISTORY_AGE, Duration.ofDays(8));
+
+        var scalingHistory = new TreeMap<Instant, ScalingSummary>();
+        var now = Instant.now();
+        var lastSummaryInstant = now.minusSeconds(9 * 60);
+        scalingHistory.put(lastSummaryInstant, new ScalingSummary(3, 4, null));
+        var lastWeekSummaryInstant = lastSummaryInstant.minus(7, ChronoUnit.DAYS);
+        scalingHistory.put(lastWeekSummaryInstant, new ScalingSummary(2, 4, null));
+        var lastweekReferSummaryInstant = now.plusSeconds(9 * 60).minus(7, ChronoUnit.DAYS);
+        scalingHistory.put(lastweekReferSummaryInstant, new ScalingSummary(4, 8, null));
+
+        var jobVertexID = new JobVertexID();
+        stateStore.storeScalingHistory(context, Map.of(jobVertexID, scalingHistory));
+        assertFalse(stateStore.getScalingHistory(context).isEmpty());
+        JobTopology jobTopology = new JobTopology(new VertexInfo(jobVertexID, Set.of(), 2, 10));
+
+        TestingMetricsCollector<JobID, JobAutoScalerContext<JobID>> metricsCollector =
+                new TestingMetricsCollector<>(jobTopology);
+        metricsCollector.setCurrentMetrics(
+                Map.of(
+                        jobVertexID,
+                        Map.of(
+                                FlinkMetric.BUSY_TIME_PER_SEC,
+                                new AggregatedMetric("load", 0., 420., 0., 0.))));
+        metricsCollector.setJobUpdateTs(Instant.ofEpochMilli(0));
+
+        ScalingMetricEvaluator evaluator = new ScalingMetricEvaluator();
+        ScalingExecutor<JobID, JobAutoScalerContext<JobID>> scalingExecutor =
+                new ScalingExecutor<>(eventCollector, stateStore);
+
+        var autoscaler =
+                new JobAutoScalerImpl<>(
+                        metricsCollector,
+                        evaluator,
+                        scalingExecutor,
+                        eventCollector,
+                        scalingRealizer,
+                        stateStore);
+        autoscaler.scale(context);
+        assertTrue(stateStore.getParallelismOverrides(context).isEmpty());
+    }
+
+    @Test
+    void testAutoscalingSpeculateExpectedAdvanceNotSatisfied() throws Exception {
+        context.getConfiguration().setBoolean(SCALING_SPECULATIVE_ENABLED, true);
+        context.getConfiguration().set(VERTEX_SCALING_HISTORY_AGE, Duration.ofDays(8));
+
+        var scalingHistory = new TreeMap<Instant, ScalingSummary>();
+        var now = Instant.now();
+        var lastSummaryInstant = now.minusSeconds(9 * 60);
+        scalingHistory.put(lastSummaryInstant, new ScalingSummary(2, 4, null));
+        var lastWeekSummaryInstant = lastSummaryInstant.minus(7, ChronoUnit.DAYS);
+        scalingHistory.put(lastWeekSummaryInstant, new ScalingSummary(2, 4, null));
+        var lastweekReferSummaryInstant = now.plusSeconds(100 * 60).minus(7, ChronoUnit.DAYS);
+        scalingHistory.put(lastweekReferSummaryInstant, new ScalingSummary(4, 8, null));
+
+        var jobVertexID = new JobVertexID();
+        stateStore.storeScalingHistory(context, Map.of(jobVertexID, scalingHistory));
+        assertFalse(stateStore.getScalingHistory(context).isEmpty());
+        JobTopology jobTopology = new JobTopology(new VertexInfo(jobVertexID, Set.of(), 2, 10));
+
+        TestingMetricsCollector<JobID, JobAutoScalerContext<JobID>> metricsCollector =
+                new TestingMetricsCollector<>(jobTopology);
+        metricsCollector.setCurrentMetrics(
+                Map.of(
+                        jobVertexID,
+                        Map.of(
+                                FlinkMetric.BUSY_TIME_PER_SEC,
+                                new AggregatedMetric("load", 0., 420., 0., 0.))));
+        metricsCollector.setJobUpdateTs(Instant.ofEpochMilli(0));
+
+        ScalingMetricEvaluator evaluator = new ScalingMetricEvaluator();
+        ScalingExecutor<JobID, JobAutoScalerContext<JobID>> scalingExecutor =
+                new ScalingExecutor<>(eventCollector, stateStore);
+
+        var autoscaler =
+                new JobAutoScalerImpl<>(
+                        metricsCollector,
+                        evaluator,
+                        scalingExecutor,
+                        eventCollector,
+                        scalingRealizer,
+                        stateStore);
+        autoscaler.scale(context);
+        assertTrue(stateStore.getParallelismOverrides(context).isEmpty());
+    }
+
+    @Test
+    void testAutoscalingSpeculateReferredSummaryIsScalingDown() throws Exception {
+        context.getConfiguration().setBoolean(SCALING_SPECULATIVE_ENABLED, true);
+        context.getConfiguration().set(VERTEX_SCALING_HISTORY_AGE, Duration.ofDays(8));
+
+        var scalingHistory = new TreeMap<Instant, ScalingSummary>();
+        var now = Instant.now();
+        var lastSummaryInstant = now.minusSeconds(9 * 60);
+        scalingHistory.put(lastSummaryInstant, new ScalingSummary(2, 4, null));
+        var lastWeekSummaryInstant = lastSummaryInstant.minus(7, ChronoUnit.DAYS);
+        scalingHistory.put(lastWeekSummaryInstant, new ScalingSummary(2, 4, null));
+        var lastweekReferSummaryInstant = now.plusSeconds(9 * 60).minus(7, ChronoUnit.DAYS);
+        scalingHistory.put(lastweekReferSummaryInstant, new ScalingSummary(4, 3, null));
+
+        var jobVertexID = new JobVertexID();
+        stateStore.storeScalingHistory(context, Map.of(jobVertexID, scalingHistory));
+        assertFalse(stateStore.getScalingHistory(context).isEmpty());
+        JobTopology jobTopology = new JobTopology(new VertexInfo(jobVertexID, Set.of(), 2, 10));
+
+        TestingMetricsCollector<JobID, JobAutoScalerContext<JobID>> metricsCollector =
+                new TestingMetricsCollector<>(jobTopology);
+        metricsCollector.setCurrentMetrics(
+                Map.of(
+                        jobVertexID,
+                        Map.of(
+                                FlinkMetric.BUSY_TIME_PER_SEC,
+                                new AggregatedMetric("load", 0., 420., 0., 0.))));
+        metricsCollector.setJobUpdateTs(Instant.ofEpochMilli(0));
+
+        ScalingMetricEvaluator evaluator = new ScalingMetricEvaluator();
+        ScalingExecutor<JobID, JobAutoScalerContext<JobID>> scalingExecutor =
+                new ScalingExecutor<>(eventCollector, stateStore);
+
+        var autoscaler =
+                new JobAutoScalerImpl<>(
+                        metricsCollector,
+                        evaluator,
+                        scalingExecutor,
+                        eventCollector,
+                        scalingRealizer,
+                        stateStore);
+        autoscaler.scale(context);
+        assertTrue(stateStore.getParallelismOverrides(context).isEmpty());
+    }
+
+    @Test
+    void testAutoscalingSpeculateNoPreconditionHistorySummary() throws Exception {
+        context.getConfiguration().setBoolean(SCALING_SPECULATIVE_ENABLED, true);
+        context.getConfiguration().set(VERTEX_SCALING_HISTORY_AGE, Duration.ofDays(8));
+
+        var scalingHistory = new TreeMap<Instant, ScalingSummary>();
+        var now = Instant.now();
+        var lastSummaryInstant = now.minusSeconds(9 * 60);
+        scalingHistory.put(lastSummaryInstant, new ScalingSummary(2, 4, null));
+        var lastweekReferSummaryInstant = now.plusSeconds(9 * 60).minus(7, ChronoUnit.DAYS);
+        scalingHistory.put(lastweekReferSummaryInstant, new ScalingSummary(4, 8, null));
+
+        var jobVertexID = new JobVertexID();
+        stateStore.storeScalingHistory(context, Map.of(jobVertexID, scalingHistory));
+        assertFalse(stateStore.getScalingHistory(context).isEmpty());
+        JobTopology jobTopology = new JobTopology(new VertexInfo(jobVertexID, Set.of(), 2, 10));
+
+        TestingMetricsCollector<JobID, JobAutoScalerContext<JobID>> metricsCollector =
+                new TestingMetricsCollector<>(jobTopology);
+        metricsCollector.setCurrentMetrics(
+                Map.of(
+                        jobVertexID,
+                        Map.of(
+                                FlinkMetric.BUSY_TIME_PER_SEC,
+                                new AggregatedMetric("load", 0., 420., 0., 0.))));
+        metricsCollector.setJobUpdateTs(Instant.ofEpochMilli(0));
+
+        ScalingMetricEvaluator evaluator = new ScalingMetricEvaluator();
+        ScalingExecutor<JobID, JobAutoScalerContext<JobID>> scalingExecutor =
+                new ScalingExecutor<>(eventCollector, stateStore);
+
+        var autoscaler =
+                new JobAutoScalerImpl<>(
+                        metricsCollector,
+                        evaluator,
+                        scalingExecutor,
+                        eventCollector,
+                        scalingRealizer,
+                        stateStore);
+        autoscaler.scale(context);
+        assertTrue(stateStore.getParallelismOverrides(context).isEmpty());
     }
 }
