@@ -21,10 +21,12 @@ import org.apache.flink.configuration.PipelineOptions;
 import org.apache.flink.kubernetes.operator.api.FlinkDeployment;
 
 import org.junit.jupiter.api.Test;
+import org.testcontainers.shaded.com.google.common.collect.Maps;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import static org.apache.flink.kubernetes.operator.utils.FlinkUtils.getTaskManagerSpec;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Tests for KubernetesScalingRealizer. */
@@ -46,6 +48,16 @@ public class KubernetesScalingRealizerTest {
                         // Currently no enforced order inside the overrides string
                         overrides -> assertThat(overrides).isEqualTo("a:1,b:2"),
                         overrides -> assertThat(overrides).isEqualTo("b:2,a:1"));
+    }
+
+    @Test
+    public void testMemoryOverrides() {
+        KubernetesJobAutoScalerContext ctx =
+                TestingKubernetesAutoscalerUtils.createContext("test", null);
+
+        new KubernetesScalingRealizer().rescaleMemory(ctx, true, Maps.newHashMap());
+
+        assertThat(getTaskManagerSpec(ctx).getResource().getMemory()).isEqualTo("2457m");
     }
 
     @Test

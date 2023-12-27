@@ -26,6 +26,9 @@ import org.apache.flink.kubernetes.KubernetesClusterClientFactory;
 import org.apache.flink.kubernetes.configuration.KubernetesConfigOptions;
 import org.apache.flink.kubernetes.highavailability.KubernetesHaServicesFactory;
 import org.apache.flink.kubernetes.kubeclient.parameters.KubernetesJobManagerParameters;
+import org.apache.flink.kubernetes.operator.api.spec.FlinkDeploymentSpec;
+import org.apache.flink.kubernetes.operator.api.spec.TaskManagerSpec;
+import org.apache.flink.kubernetes.operator.autoscaler.KubernetesJobAutoScalerContext;
 import org.apache.flink.kubernetes.operator.reconciler.ReconciliationUtils;
 import org.apache.flink.kubernetes.utils.Constants;
 import org.apache.flink.kubernetes.utils.KubernetesUtils;
@@ -51,9 +54,11 @@ import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.apps.DeploymentCondition;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.javaoperatorsdk.operator.api.reconciler.Context;
+import lombok.SneakyThrows;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -448,5 +453,13 @@ public class FlinkUtils {
 
         // If unsure, return false to be on the safe side
         return false;
+    }
+
+    @SneakyThrows
+    public static TaskManagerSpec getTaskManagerSpec(KubernetesJobAutoScalerContext context) {
+        Field taskManagerField = FlinkDeploymentSpec.class.getDeclaredField("taskManager");
+        taskManagerField.setAccessible(true);
+        FlinkDeploymentSpec deploymentSpec = (FlinkDeploymentSpec) context.getResource().getSpec();
+        return (TaskManagerSpec) taskManagerField.get(deploymentSpec);
     }
 }

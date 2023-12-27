@@ -123,8 +123,8 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
             return false;
         }
 
-        if (scaleEnabled && boastJobMemory(context, evaluatedMetrics, memoryPressure)) {
-            return true;
+        if (scaleEnabled) {
+            boastJobMemory(context, evaluatedMetrics, memoryPressure);
         }
 
         addToScalingHistoryAndStore(
