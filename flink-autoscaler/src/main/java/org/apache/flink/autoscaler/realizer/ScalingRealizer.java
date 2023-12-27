@@ -34,4 +34,7 @@ public interface ScalingRealizer<KEY, Context extends JobAutoScalerContext<KEY>>
 
     /** Update job's parallelism to parallelismOverrides. */
     void realize(Context context, Map<String, String> parallelismOverrides);
+
+    default void rescaleMemory(
+            Context context, boolean underMemoryPressure, Map<String, String> memoryInfo) {}
 }

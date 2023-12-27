@@ -26,6 +26,8 @@ import org.apache.flink.autoscaler.metrics.ScalingMetric;
 import org.apache.flink.autoscaler.state.AutoScalerStateStore;
 import org.apache.flink.autoscaler.utils.CalendarUtils;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.MemorySize;
+import org.apache.flink.runtime.clusterframework.TaskExecutorProcessUtils;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 
 import org.slf4j.Logger;
@@ -39,15 +41,22 @@ import java.util.Map;
 import java.util.SortedMap;
 
 import static org.apache.flink.autoscaler.config.AutoScalerOptions.EXCLUDED_PERIODS;
+import static org.apache.flink.autoscaler.config.AutoScalerOptions.FLINK_MANAGED_HIT_RATIO;
+import static org.apache.flink.autoscaler.config.AutoScalerOptions.FLINK_MANAGED_MEM_BOAST_RATIO;
 import static org.apache.flink.autoscaler.config.AutoScalerOptions.SCALING_ENABLED;
 import static org.apache.flink.autoscaler.config.AutoScalerOptions.SCALING_EVENT_INTERVAL;
 import static org.apache.flink.autoscaler.event.AutoScalerEventHandler.SCALING_EXECUTION_DISABLED_REASON;
 import static org.apache.flink.autoscaler.event.AutoScalerEventHandler.SCALING_SUMMARY_HEADER_SCALING_EXECUTION_DISABLED;
 import static org.apache.flink.autoscaler.event.AutoScalerEventHandler.SCALING_SUMMARY_HEADER_SCALING_EXECUTION_ENABLED;
 import static org.apache.flink.autoscaler.metrics.ScalingHistoryUtils.addToScalingHistoryAndStore;
+import static org.apache.flink.autoscaler.metrics.ScalingMetric.HEAP_USAGE;
+import static org.apache.flink.autoscaler.metrics.ScalingMetric.ROCKSDB_CACHE_HIT_RATIO;
 import static org.apache.flink.autoscaler.metrics.ScalingMetric.SCALE_DOWN_RATE_THRESHOLD;
 import static org.apache.flink.autoscaler.metrics.ScalingMetric.SCALE_UP_RATE_THRESHOLD;
 import static org.apache.flink.autoscaler.metrics.ScalingMetric.TRUE_PROCESSING_RATE;
+import static org.apache.flink.configuration.TaskManagerOptions.MANAGED_MEMORY_FRACTION;
+import static org.apache.flink.configuration.TaskManagerOptions.MANAGED_MEMORY_SIZE;
+import static org.apache.flink.configuration.TaskManagerOptions.TOTAL_PROCESS_MEMORY;
 
 /** Class responsible for executing scaling decisions. */
 public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
@@ -90,10 +99,13 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
             Instant now)
             throws Exception {
         var conf = context.getConfiguration();
+        var scaleEnabled = conf.get(SCALING_ENABLED);
         var restartTime = scalingTracking.getMaxRestartTimeOrDefault(conf);
 
+        var memoryPressure = isJobUnderMemoryPressure(context, evaluatedMetrics.getGlobalMetrics());
         var scalingSummaries =
-                computeScalingSummary(context, evaluatedMetrics, scalingHistory, restartTime);
+                computeScalingSummary(
+                        context, evaluatedMetrics, scalingHistory, restartTime, memoryPressure);
 
         if (scalingSummaries.isEmpty()) {
             LOG.info("All job vertices are currently running at their target parallelism.");
@@ -111,6 +123,10 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
             return false;
         }
 
+        if (scaleEnabled) {
+            boastJobMemory(context, evaluatedMetrics, memoryPressure);
+        }
+
         addToScalingHistoryAndStore(
                 autoScalerStateStore, context, scalingHistory, now, scalingSummaries);
 
@@ -123,6 +139,48 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
                         evaluatedMetrics.getVertexMetrics(), scalingSummaries));
 
         return true;
+    }
+
+    public boolean boastJobMemory(
+            Context context, EvaluatedMetrics evaluatedMetrics, boolean memoryPressure)
+            throws Exception {
+        if (memoryPressure) {
+            autoScalerStateStore.setMemoryUnderPressure(context);
+            return true;
+        } else {
+            autoScalerStateStore.removeMemoryUnderPressure(context);
+        }
+
+        var conf = context.getConfiguration();
+        var cacheHitRate = evaluatedMetrics.getGlobalMetrics().get(ROCKSDB_CACHE_HIT_RATIO);
+        if (cacheHitRate != null && cacheHitRate.getAverage() < conf.get(FLINK_MANAGED_HIT_RATIO)) {
+            var managedMem = conf.get(MANAGED_MEMORY_SIZE);
+            if (managedMem == null) {
+                var managedFraction = conf.get(MANAGED_MEMORY_FRACTION);
+                var totalMemory = conf.get(TOTAL_PROCESS_MEMORY);
+                managedMem = totalMemory.multiply(managedFraction);
+            }
+
+            MemorySize totalHeap =
+                    TaskExecutorProcessUtils.processSpecFromConfig(conf)
+                            .getFlinkMemory()
+                            .getTaskHeap();
+            double heapUsed = evaluatedMetrics.getGlobalMetrics().get(HEAP_USAGE).getAverage();
+            MemorySize freeHeap = totalHeap.multiply(1 - heapUsed);
+            float boastRatio = conf.get(FLINK_MANAGED_MEM_BOAST_RATIO);
+            assert boastRatio > 0 && boastRatio < 1;
+            var newManagedMem = managedMem.add(freeHeap.multiply(boastRatio));
+            autoScalerStateStore.storeManagedMemOverrides(
+                    context, newManagedMem.getMebiBytes() + "m");
+            LOG.info(
+                    "Scaling {} managed from {} to {} due to freeHeap {}",
+                    context.getJobKey(),
+                    managedMem,
+                    newManagedMem,
+                    freeHeap);
+            return true;
+        }
+        return false;
     }
 
     private void updateRecommendedParallelism(
@@ -176,9 +234,10 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
             Context context,
             EvaluatedMetrics evaluatedMetrics,
             Map<JobVertexID, SortedMap<Instant, ScalingSummary>> scalingHistory,
-            Duration restartTime) {
+            Duration restartTime,
+            boolean memoryPressure) {
 
-        if (isJobUnderMemoryPressure(context, evaluatedMetrics.getGlobalMetrics())) {
+        if (memoryPressure) {
             LOG.info("Skipping vertex scaling due to memory pressure");
             return Map.of();
         }

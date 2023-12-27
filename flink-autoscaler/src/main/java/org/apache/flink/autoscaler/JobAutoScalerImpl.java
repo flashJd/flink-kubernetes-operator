@@ -110,8 +110,14 @@ public class JobAutoScalerImpl<KEY, Context extends JobAutoScalerContext<KEY>>
         } catch (Throwable e) {
             onError(ctx, autoscalerMetrics, e);
         } finally {
+            applyMemoryOverrides(ctx);
             applyParallelismOverrides(ctx);
         }
+    }
+
+    protected void applyMemoryOverrides(Context ctx) throws Exception {
+        boolean underMemoryPressure = stateStore.isMemoryUnderPressure(ctx);
+        scalingRealizer.rescaleMemory(ctx, underMemoryPressure, stateStore.getMemOverrides(ctx));
     }
 
     @Override
@@ -207,11 +213,11 @@ public class JobAutoScalerImpl<KEY, Context extends JobAutoScalerContext<KEY>>
             }
         }
 
-        var parallelismChanged =
+        var memoryOrParallelismChanged =
                 scalingExecutor.scaleResource(
                         ctx, evaluatedMetrics, scalingHistory, scalingTracking, now);
 
-        if (parallelismChanged) {
+        if (memoryOrParallelismChanged) {
             autoscalerMetrics.incrementScaling();
         } else {
             autoscalerMetrics.incrementBalanced();

@@ -533,4 +533,16 @@ public class JobAutoScalerImplTest {
         autoscaler.scale(context);
         assertTrue(stateStore.getParallelismOverrides(context).isEmpty());
     }
+
+    @Test
+    void testManagedMemoryOverrides() throws Exception {
+        // Initially we should return empty overrides, do not crate any state
+        assertThat(stateStore.getMemOverrides(context)).isEmpty();
+
+        stateStore.setMemoryUnderPressure(context);
+        stateStore.storeManagedMemOverrides(context, "128m");
+        stateStore.flush(context);
+
+        assertTrue(!stateStore.getMemOverrides(context).isEmpty());
+    }
 }

@@ -27,9 +27,11 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListSet;
 
 /**
  * State store based on the Java Heap, the state will be discarded after process restarts.
@@ -45,6 +47,10 @@ public class InMemoryAutoScalerStateStore<KEY, Context extends JobAutoScalerCont
 
     private final Map<KEY, SortedMap<Instant, CollectedMetrics>> collectedMetricsStore;
 
+    private final Map<KEY, String> managedMemOverridesStore;
+
+    private final Set<KEY> memoryPressureStore;
+
     private final Map<KEY, Map<String, String>> parallelismOverridesStore;
 
     private final Map<KEY, ScalingTracking> scalingTrackingStore;
@@ -54,6 +60,8 @@ public class InMemoryAutoScalerStateStore<KEY, Context extends JobAutoScalerCont
         collectedMetricsStore = new ConcurrentHashMap<>();
         parallelismOverridesStore = new ConcurrentHashMap<>();
         scalingTrackingStore = new ConcurrentHashMap<>();
+        managedMemOverridesStore = new ConcurrentHashMap<>();
+        memoryPressureStore = new ConcurrentSkipListSet<>();
     }
 
     @Override
@@ -101,6 +109,31 @@ public class InMemoryAutoScalerStateStore<KEY, Context extends JobAutoScalerCont
     @Override
     public void removeCollectedMetrics(Context jobContext) {
         collectedMetricsStore.remove(jobContext.getJobKey());
+    }
+
+    @Override
+    public void setMemoryUnderPressure(Context jobContext) throws Exception {
+        memoryPressureStore.add(jobContext.getJobKey());
+    }
+
+    @Override
+    public void removeMemoryUnderPressure(Context jobContext) throws Exception {
+        memoryPressureStore.remove(jobContext.getJobKey());
+    }
+
+    @Override
+    public boolean isMemoryUnderPressure(Context jobContext) throws Exception {
+        return memoryPressureStore.contains(jobContext.getJobKey());
+    }
+
+    @Override
+    public void storeManagedMemOverrides(Context jobContext, String managed) {
+        managedMemOverridesStore.put(jobContext.getJobKey(), managed);
+    }
+
+    @Override
+    public Optional<String> getManagedMemOverrides(Context jobContext) {
+        return Optional.ofNullable(managedMemOverridesStore.get(jobContext.getJobKey()));
     }
 
     @Override

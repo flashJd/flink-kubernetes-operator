@@ -48,6 +48,18 @@ public class ScalingMetrics {
         scalingMetrics.put(ScalingMetric.LOAD, busyTimeMsPerSecond / 1000);
     }
 
+    public static void computeRocksDBCacheHitMetrics(
+            Map<FlinkMetric, AggregatedMetric> flinkMetrics,
+            Map<ScalingMetric, Double> scalingMetrics) {
+        AggregatedMetric cacheHit = flinkMetrics.get(FlinkMetric.ROCKSDB_BLOCK_CACHE_HIT);
+        AggregatedMetric cacheMiss = flinkMetrics.get(FlinkMetric.ROCKSDB_BLOCK_CACHE_MISS);
+        if (cacheHit != null && cacheMiss != null) {
+            scalingMetrics.put(
+                    ScalingMetric.ROCKSDB_CACHE_HIT_RATIO,
+                    cacheHit.getAvg() / (cacheHit.getAvg() + cacheMiss.getAvg()));
+        }
+    }
+
     public static void computeDataRateMetrics(
             JobVertexID jobVertexID,
             Map<FlinkMetric, AggregatedMetric> flinkMetrics,

@@ -260,6 +260,24 @@ public class AutoScalerOptions {
                     .withDescription(
                             "Max allowed percentage of heap usage during scaling operations. Autoscaling will be paused if the heap usage exceeds this threshold.");
 
+    public static final ConfigOption<Float> FLINK_MANAGED_HIT_RATIO =
+            autoScalerConfig("managed.memory.hit.ratio")
+                    .floatType()
+                    .defaultValue(0.5f)
+                    .withDescription("The hit ratio of rocksdb cache need to be hit.");
+
+    public static final ConfigOption<Float> FLINK_MANAGED_MEM_BOAST_RATIO =
+            autoScalerConfig("managed.memory.boast.ratio")
+                    .floatType()
+                    .defaultValue(0.2f)
+                    .withDescription("The boast ratio of managed memory.");
+
+    public static final ConfigOption<Float> FLINK_JOB_MEM_BOAST_RATIO =
+            autoScalerConfig("job.memory.boast.ratio")
+                    .floatType()
+                    .defaultValue(0.2f)
+                    .withDescription("The boast ratio of job memory.");
+
     public static final ConfigOption<Integer> VERTEX_SCALING_HISTORY_COUNT =
             autoScalerConfig("history.max.count")
                     .intType()

@@ -27,8 +27,12 @@ import org.apache.flink.runtime.jobgraph.JobVertexID;
 import javax.annotation.Nonnull;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.SortedMap;
+
+import static org.apache.flink.configuration.TaskManagerOptions.MANAGED_MEMORY_SIZE;
 
 /**
  * The state store is responsible for storing all state during scaling.
@@ -61,8 +65,25 @@ public interface AutoScalerStateStore<KEY, Context extends JobAutoScalerContext<
 
     void removeCollectedMetrics(Context jobContext) throws Exception;
 
+    void setMemoryUnderPressure(Context jobContext) throws Exception;
+
+    void removeMemoryUnderPressure(Context jobContext) throws Exception;
+
+    boolean isMemoryUnderPressure(Context jobContext) throws Exception;
+
+    void storeManagedMemOverrides(Context jobContext, String managed) throws Exception;
+
     void storeParallelismOverrides(Context jobContext, Map<String, String> parallelismOverrides)
             throws Exception;
+
+    Optional<String> getManagedMemOverrides(Context jobContext);
+
+    default Map<String, String> getMemOverrides(Context jobContext) throws Exception {
+        Map<String, String> memInfo = new HashMap<>(1);
+        getManagedMemOverrides(jobContext)
+                .ifPresent(v -> memInfo.put(MANAGED_MEMORY_SIZE.key(), v));
+        return memInfo;
+    }
 
     @Nonnull
     Map<String, String> getParallelismOverrides(Context jobContext) throws Exception;

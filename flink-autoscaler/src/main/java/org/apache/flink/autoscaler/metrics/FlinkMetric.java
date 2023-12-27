@@ -43,7 +43,11 @@ public enum FlinkMetric {
 
     HEAP_MAX(s -> s.equals("Status.JVM.Memory.Heap.Max")),
     HEAP_USED(s -> s.equals("Status.JVM.Memory.Heap.Used")),
-    TOTAL_GC_TIME_PER_SEC(s -> s.equals("Status.JVM.GarbageCollector.All.TimeMsPerSecond"));
+    TOTAL_GC_TIME_PER_SEC(s -> s.equals("Status.JVM.GarbageCollector.All.TimeMsPerSecond")),
+
+    ROCKSDB_BLOCK_CACHE_HIT(s -> s.equals("KeyedProcess.rocksdb_block_cache_hit")),
+
+    ROCKSDB_BLOCK_CACHE_MISS(s -> s.equals("KeyedProcess.rocksdb_block_cache_miss"));
 
     public static final Map<FlinkMetric, AggregatedMetric> FINISHED_METRICS =
             Map.of(
