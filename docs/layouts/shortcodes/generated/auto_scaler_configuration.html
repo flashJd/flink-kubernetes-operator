@@ -51,16 +51,22 @@
             <td>Maximum number of past scaling decisions to retain per vertex.</td>
         </tr>
         <tr>
-            <td><h5>job.autoscaler.job.memory.boast.ratio</h5></td>
+            <td><h5>job.autoscaler.job.memory.expand.ratio</h5></td>
             <td style="word-wrap: break-word;">0.2</td>
             <td>Float</td>
-            <td>The boast ratio of job memory.</td>
+            <td>The expand ratio of job memory.</td>
         </tr>
         <tr>
-            <td><h5>job.autoscaler.managed.memory.boast.ratio</h5></td>
+            <td><h5>job.autoscaler.job.memory.reduce.ratio</h5></td>
             <td style="word-wrap: break-word;">0.2</td>
             <td>Float</td>
-            <td>The boast ratio of managed memory.</td>
+            <td>The reduce ratio of job memory.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.managed.memory.expand.ratio</h5></td>
+            <td style="word-wrap: break-word;">0.2</td>
+            <td>Float</td>
+            <td>The expand ratio of managed memory.</td>
         </tr>
         <tr>
             <td><h5>job.autoscaler.managed.memory.hit.ratio</h5></td>
@@ -69,16 +75,34 @@
             <td>The hit ratio of rocksdb cache need to be hit.</td>
         </tr>
         <tr>
+            <td><h5>job.autoscaler.memory.expand.only</h5></td>
+            <td style="word-wrap: break-word;">true</td>
+            <td>Boolean</td>
+            <td>Memory expand may be speed up processing.</td>
+        </tr>
+        <tr>
             <td><h5>job.autoscaler.memory.gc-pressure.threshold</h5></td>
             <td style="word-wrap: break-word;">1.0</td>
             <td>Double</td>
             <td>Max allowed GC pressure (percentage spent garbage collecting) during scaling operations. Autoscaling will be paused if the GC pressure exceeds this limit.</td>
         </tr>
         <tr>
+            <td><h5>job.autoscaler.memory.heap-free.threshold</h5></td>
+            <td style="word-wrap: break-word;">1.0</td>
+            <td>Double</td>
+            <td>Min allowed percentage of heap usage during scaling operations. Memory will be reduced if lower than threshold.</td>
+        </tr>
+        <tr>
             <td><h5>job.autoscaler.memory.heap-usage.threshold</h5></td>
             <td style="word-wrap: break-word;">1.0</td>
             <td>Double</td>
             <td>Max allowed percentage of heap usage during scaling operations. Autoscaling will be paused if the heap usage exceeds this threshold.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.memory.scaling.enabled</h5></td>
+            <td style="word-wrap: break-word;">true</td>
+            <td>Boolean</td>
+            <td>Enable memory scaling execution by the autoscaler.</td>
         </tr>
         <tr>
             <td><h5>job.autoscaler.metrics.busy-time.aggregator</h5></td>

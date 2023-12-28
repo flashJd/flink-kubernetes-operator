@@ -19,7 +19,7 @@
 apiVersion: flink.apache.org/v1beta1
 kind: FlinkDeployment
 metadata:
-  name: autoscaling-memory
+  name: autoscaling-memory-free
 spec:
   image: localhost:5000/autoscaling-example
   flinkVersion: v1_17
@@ -27,9 +27,7 @@ spec:
     job.autoscaler.enabled: "true"
     job.autoscaler.stabilization.interval: "1m"
     job.autoscaler.metrics.window: "1m"
-    job.autoscaler.target.utilization: "0.9"
-    job.autoscaler.target.utilization.boundary: "0.9"
-    job.autoscaler.job.memory.boast.ratio: "0.8"
+    job.autoscaler.job.memory.expand.ratio: "0.8"
     job.autoscaler.memory.heap-usage.threshold: "0.6"
     state.backend.rocksdb.metrics.block-cache-hit: "true"
     state.backend.rocksdb.metrics.block-cache-miss: "true"
@@ -41,8 +39,7 @@ spec:
     pipeline.max-parallelism: "32"
     taskmanager.numberOfTaskSlots: "2"
     taskmanager.memory.managed.size: "10m"
-    example.cache.data: "true"
-    example.cache.number: "8000000"
+    example.cache.data: "false"
   serviceAccount: flink
   jobManager:
     resource:

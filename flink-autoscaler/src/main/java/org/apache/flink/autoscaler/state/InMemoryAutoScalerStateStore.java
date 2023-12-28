@@ -27,11 +27,9 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentSkipListSet;
 
 /**
  * State store based on the Java Heap, the state will be discarded after process restarts.
@@ -49,7 +47,7 @@ public class InMemoryAutoScalerStateStore<KEY, Context extends JobAutoScalerCont
 
     private final Map<KEY, String> managedMemOverridesStore;
 
-    private final Set<KEY> memoryPressureStore;
+    private final Map<KEY, HeapMemoryState> heapMemoryState;
 
     private final Map<KEY, Map<String, String>> parallelismOverridesStore;
 
@@ -61,7 +59,7 @@ public class InMemoryAutoScalerStateStore<KEY, Context extends JobAutoScalerCont
         parallelismOverridesStore = new ConcurrentHashMap<>();
         scalingTrackingStore = new ConcurrentHashMap<>();
         managedMemOverridesStore = new ConcurrentHashMap<>();
-        memoryPressureStore = new ConcurrentSkipListSet<>();
+        heapMemoryState = new ConcurrentHashMap<>();
     }
 
     @Override
@@ -112,18 +110,14 @@ public class InMemoryAutoScalerStateStore<KEY, Context extends JobAutoScalerCont
     }
 
     @Override
-    public void setMemoryUnderPressure(Context jobContext) throws Exception {
-        memoryPressureStore.add(jobContext.getJobKey());
+    public void storeHeapMemoryState(Context jobContext, HeapMemoryState memoryState)
+            throws Exception {
+        heapMemoryState.put(jobContext.getJobKey(), memoryState);
     }
 
     @Override
-    public void removeMemoryUnderPressure(Context jobContext) throws Exception {
-        memoryPressureStore.remove(jobContext.getJobKey());
-    }
-
-    @Override
-    public boolean isMemoryUnderPressure(Context jobContext) throws Exception {
-        return memoryPressureStore.contains(jobContext.getJobKey());
+    public HeapMemoryState getHeapMemoryState(Context jobContext) throws Exception {
+        return heapMemoryState.get(jobContext.getJobKey());
     }
 
     @Override

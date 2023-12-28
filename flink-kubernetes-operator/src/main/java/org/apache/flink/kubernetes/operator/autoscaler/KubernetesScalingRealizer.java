@@ -18,6 +18,7 @@
 package org.apache.flink.kubernetes.operator.autoscaler;
 
 import org.apache.flink.autoscaler.realizer.ScalingRealizer;
+import org.apache.flink.autoscaler.state.HeapMemoryState;
 import org.apache.flink.configuration.ConfigurationUtils;
 import org.apache.flink.configuration.MemorySize;
 import org.apache.flink.configuration.PipelineOptions;
@@ -31,7 +32,8 @@ import javax.annotation.Nullable;
 
 import java.util.Map;
 
-import static org.apache.flink.autoscaler.config.AutoScalerOptions.FLINK_JOB_MEM_BOAST_RATIO;
+import static org.apache.flink.autoscaler.config.AutoScalerOptions.FLINK_JOB_MEM_EXPAND_RATIO;
+import static org.apache.flink.autoscaler.config.AutoScalerOptions.FLINK_JOB_MEM_REDUCE_RATIO;
 import static org.apache.flink.kubernetes.operator.utils.FlinkUtils.getTaskManagerSpec;
 
 /** The Kubernetes implementation for applying parallelism overrides. */
@@ -55,29 +57,35 @@ public class KubernetesScalingRealizer
     @Override
     public void rescaleMemory(
             KubernetesJobAutoScalerContext context,
-            boolean underMemoryPressure,
+            HeapMemoryState memoryState,
             Map<String, String> memoryInfo) {
         var autoScaleConf = context.getConfiguration();
-        if (underMemoryPressure) {
-            var taskManagerSpec = getTaskManagerSpec(context);
-            var originResource = taskManagerSpec.getResource();
-            var originMem = MemorySize.parse(originResource.getMemory());
-            double jobMemBoastRatio = autoScaleConf.get(FLINK_JOB_MEM_BOAST_RATIO);
-            var newMem = originMem.multiply(1 + jobMemBoastRatio);
+        var taskManagerSpec = getTaskManagerSpec(context);
+        var originResource = taskManagerSpec.getResource();
+        var originMem = MemorySize.parse(originResource.getMemory());
+
+        MemorySize newMem = null;
+        if (HeapMemoryState.TOO_FULL.equals(memoryState)) {
+            double jobMemExpandRatio = autoScaleConf.get(FLINK_JOB_MEM_EXPAND_RATIO);
+            newMem = originMem.multiply(1 + jobMemExpandRatio);
+        } else if (HeapMemoryState.TOO_FREE.equals(memoryState)) {
+            double jobMemReduceRatio = autoScaleConf.get(FLINK_JOB_MEM_REDUCE_RATIO);
+            newMem = originMem.multiply(1 - jobMemReduceRatio);
+        }
+
+        if (newMem != null) {
             var newResource =
                     new Resource(
                             originResource.getCpu(),
                             newMem.getMebiBytes() + "m",
                             originResource.getEphemeralStorage());
             LOG.info(
-                    "Rescale {} memory from {} to {} due to jobMemBoastRatio {}",
+                    "Rescale {} memory from {} to {} due to jobMemExpandRatio {}",
                     context.getJobKey(),
                     originMem,
-                    newMem,
-                    jobMemBoastRatio);
+                    newMem);
             taskManagerSpec.setResource(newResource);
         }
-
         memoryInfo.forEach(
                 (k, v) -> {
                     autoScaleConf.setString(k, v);

@@ -65,11 +65,9 @@ public interface AutoScalerStateStore<KEY, Context extends JobAutoScalerContext<
 
     void removeCollectedMetrics(Context jobContext) throws Exception;
 
-    void setMemoryUnderPressure(Context jobContext) throws Exception;
+    void storeHeapMemoryState(Context jobContext, HeapMemoryState memoryState) throws Exception;
 
-    void removeMemoryUnderPressure(Context jobContext) throws Exception;
-
-    boolean isMemoryUnderPressure(Context jobContext) throws Exception;
+    HeapMemoryState getHeapMemoryState(Context jobContext) throws Exception;
 
     void storeManagedMemOverrides(Context jobContext, String managed) throws Exception;
 

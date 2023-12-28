@@ -27,6 +27,7 @@ import org.apache.flink.autoscaler.metrics.FlinkMetric;
 import org.apache.flink.autoscaler.metrics.ScalingMetric;
 import org.apache.flink.autoscaler.realizer.TestingScalingRealizer;
 import org.apache.flink.autoscaler.state.AutoScalerStateStore;
+import org.apache.flink.autoscaler.state.HeapMemoryState;
 import org.apache.flink.autoscaler.state.InMemoryAutoScalerStateStore;
 import org.apache.flink.autoscaler.topology.JobTopology;
 import org.apache.flink.autoscaler.topology.VertexInfo;
@@ -539,7 +540,7 @@ public class JobAutoScalerImplTest {
         // Initially we should return empty overrides, do not crate any state
         assertThat(stateStore.getMemOverrides(context)).isEmpty();
 
-        stateStore.setMemoryUnderPressure(context);
+        stateStore.storeHeapMemoryState(context, HeapMemoryState.TOO_FULL);
         stateStore.storeManagedMemOverrides(context, "128m");
         stateStore.flush(context);
 

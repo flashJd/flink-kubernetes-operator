@@ -58,6 +58,20 @@ public class AutoScalerOptions {
                     .withDescription(
                             "Enable vertex scaling execution by the autoscaler. If disabled, the autoscaler will only collect metrics and evaluate the suggested parallelism for each vertex but will not upgrade the jobs.");
 
+    public static final ConfigOption<Boolean> MEMORY_SCALING_ENABLED =
+            autoScalerConfig("memory.scaling.enabled")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withFallbackKeys(oldOperatorConfigKey("memory.scaling.enabled"))
+                    .withDescription("Enable memory scaling execution by the autoscaler.");
+
+    public static final ConfigOption<Boolean> MEMORY_EXPAND_ONLY =
+            autoScalerConfig("memory.expand.only")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withFallbackKeys(oldOperatorConfigKey("memory.expand.only"))
+                    .withDescription("Memory expand may be speed up processing.");
+
     public static final ConfigOption<Duration> METRICS_WINDOW =
             autoScalerConfig("metrics.window")
                     .durationType()
@@ -260,23 +274,37 @@ public class AutoScalerOptions {
                     .withDescription(
                             "Max allowed percentage of heap usage during scaling operations. Autoscaling will be paused if the heap usage exceeds this threshold.");
 
+    public static final ConfigOption<Double> HEAP_FREE_THRESHOLD =
+            autoScalerConfig("memory.heap-free.threshold")
+                    .doubleType()
+                    .defaultValue(1.)
+                    .withFallbackKeys(oldOperatorConfigKey("memory.heap-free.threshold"))
+                    .withDescription(
+                            "Min allowed percentage of heap usage during scaling operations. Memory will be reduced if lower than threshold.");
+
     public static final ConfigOption<Float> FLINK_MANAGED_HIT_RATIO =
             autoScalerConfig("managed.memory.hit.ratio")
                     .floatType()
                     .defaultValue(0.5f)
                     .withDescription("The hit ratio of rocksdb cache need to be hit.");
 
-    public static final ConfigOption<Float> FLINK_MANAGED_MEM_BOAST_RATIO =
-            autoScalerConfig("managed.memory.boast.ratio")
+    public static final ConfigOption<Float> FLINK_MANAGED_MEM_EXPAND_RATIO =
+            autoScalerConfig("managed.memory.expand.ratio")
                     .floatType()
                     .defaultValue(0.2f)
-                    .withDescription("The boast ratio of managed memory.");
+                    .withDescription("The expand ratio of managed memory.");
 
-    public static final ConfigOption<Float> FLINK_JOB_MEM_BOAST_RATIO =
-            autoScalerConfig("job.memory.boast.ratio")
+    public static final ConfigOption<Float> FLINK_JOB_MEM_EXPAND_RATIO =
+            autoScalerConfig("job.memory.expand.ratio")
                     .floatType()
                     .defaultValue(0.2f)
-                    .withDescription("The boast ratio of job memory.");
+                    .withDescription("The expand ratio of job memory.");
+
+    public static final ConfigOption<Float> FLINK_JOB_MEM_REDUCE_RATIO =
+            autoScalerConfig("job.memory.reduce.ratio")
+                    .floatType()
+                    .defaultValue(0.2f)
+                    .withDescription("The reduce ratio of job memory.");
 
     public static final ConfigOption<Integer> VERTEX_SCALING_HISTORY_COUNT =
             autoScalerConfig("history.max.count")
