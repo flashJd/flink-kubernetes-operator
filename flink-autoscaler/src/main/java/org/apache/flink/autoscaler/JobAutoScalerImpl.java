@@ -116,8 +116,8 @@ public class JobAutoScalerImpl<KEY, Context extends JobAutoScalerContext<KEY>>
     }
 
     protected void applyMemoryOverrides(Context ctx) throws Exception {
-        boolean underMemoryPressure = stateStore.isMemoryUnderPressure(ctx);
-        scalingRealizer.rescaleMemory(ctx, underMemoryPressure, stateStore.getMemOverrides(ctx));
+        var memoryState = stateStore.getHeapMemoryState(ctx);
+        scalingRealizer.rescaleMemory(ctx, memoryState, stateStore.getMemOverrides(ctx));
     }
 
     @Override

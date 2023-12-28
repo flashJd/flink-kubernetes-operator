@@ -24,6 +24,7 @@ import org.apache.flink.autoscaler.metrics.EvaluatedMetrics;
 import org.apache.flink.autoscaler.metrics.EvaluatedScalingMetric;
 import org.apache.flink.autoscaler.metrics.ScalingMetric;
 import org.apache.flink.autoscaler.state.AutoScalerStateStore;
+import org.apache.flink.autoscaler.state.HeapMemoryState;
 import org.apache.flink.autoscaler.utils.CalendarUtils;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.MemorySize;
@@ -42,7 +43,9 @@ import java.util.SortedMap;
 
 import static org.apache.flink.autoscaler.config.AutoScalerOptions.EXCLUDED_PERIODS;
 import static org.apache.flink.autoscaler.config.AutoScalerOptions.FLINK_MANAGED_HIT_RATIO;
-import static org.apache.flink.autoscaler.config.AutoScalerOptions.FLINK_MANAGED_MEM_BOAST_RATIO;
+import static org.apache.flink.autoscaler.config.AutoScalerOptions.FLINK_MANAGED_MEM_EXPAND_RATIO;
+import static org.apache.flink.autoscaler.config.AutoScalerOptions.MEMORY_EXPAND_ONLY;
+import static org.apache.flink.autoscaler.config.AutoScalerOptions.MEMORY_SCALING_ENABLED;
 import static org.apache.flink.autoscaler.config.AutoScalerOptions.SCALING_ENABLED;
 import static org.apache.flink.autoscaler.config.AutoScalerOptions.SCALING_EVENT_INTERVAL;
 import static org.apache.flink.autoscaler.event.AutoScalerEventHandler.SCALING_EXECUTION_DISABLED_REASON;
@@ -54,9 +57,6 @@ import static org.apache.flink.autoscaler.metrics.ScalingMetric.ROCKSDB_CACHE_HI
 import static org.apache.flink.autoscaler.metrics.ScalingMetric.SCALE_DOWN_RATE_THRESHOLD;
 import static org.apache.flink.autoscaler.metrics.ScalingMetric.SCALE_UP_RATE_THRESHOLD;
 import static org.apache.flink.autoscaler.metrics.ScalingMetric.TRUE_PROCESSING_RATE;
-import static org.apache.flink.configuration.TaskManagerOptions.MANAGED_MEMORY_FRACTION;
-import static org.apache.flink.configuration.TaskManagerOptions.MANAGED_MEMORY_SIZE;
-import static org.apache.flink.configuration.TaskManagerOptions.TOTAL_PROCESS_MEMORY;
 
 /** Class responsible for executing scaling decisions. */
 public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
@@ -102,10 +102,30 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
         var scaleEnabled = conf.get(SCALING_ENABLED);
         var restartTime = scalingTracking.getMaxRestartTimeOrDefault(conf);
 
-        var memoryPressure = isJobUnderMemoryPressure(context, evaluatedMetrics.getGlobalMetrics());
+        var memoryState = checkJobMemoryState(context, evaluatedMetrics.getGlobalMetrics());
+        if (scaleEnabled) {
+            if (conf.get(MEMORY_SCALING_ENABLED)) {
+                if (!CalendarUtils.inExcludedPeriods(conf, now)) {
+                    boolean memoryExpand = rescaleJobMemory(context, evaluatedMetrics, memoryState);
+                    if (memoryExpand && conf.get(MEMORY_EXPAND_ONLY)) {
+                        LOG.info("memory expand and will ignore vertex scaling");
+                        return true;
+                    }
+                } else {
+                    LOG.info("memory scaling is disabled because exclude periods");
+                }
+            } else {
+                LOG.info("memory scaling is disabled and only support vertex scaling.");
+            }
+        }
+
         var scalingSummaries =
                 computeScalingSummary(
-                        context, evaluatedMetrics, scalingHistory, restartTime, memoryPressure);
+                        context,
+                        evaluatedMetrics,
+                        scalingHistory,
+                        restartTime,
+                        HeapMemoryState.TOO_FULL.equals(memoryState));
 
         if (scalingSummaries.isEmpty()) {
             LOG.info("All job vertices are currently running at their target parallelism.");
@@ -123,10 +143,6 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
             return false;
         }
 
-        if (scaleEnabled) {
-            boastJobMemory(context, evaluatedMetrics, memoryPressure);
-        }
-
         addToScalingHistoryAndStore(
                 autoScalerStateStore, context, scalingHistory, now, scalingSummaries);
 
@@ -141,35 +157,19 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
         return true;
     }
 
-    public boolean boastJobMemory(
-            Context context, EvaluatedMetrics evaluatedMetrics, boolean memoryPressure)
+    public boolean rescaleJobMemory(
+            Context context, EvaluatedMetrics evaluatedMetrics, HeapMemoryState memoryState)
             throws Exception {
-        if (memoryPressure) {
-            autoScalerStateStore.setMemoryUnderPressure(context);
-            return true;
-        } else {
-            autoScalerStateStore.removeMemoryUnderPressure(context);
-        }
-
         var conf = context.getConfiguration();
         var cacheHitRate = evaluatedMetrics.getGlobalMetrics().get(ROCKSDB_CACHE_HIT_RATIO);
         if (cacheHitRate != null && cacheHitRate.getAverage() < conf.get(FLINK_MANAGED_HIT_RATIO)) {
-            var managedMem = conf.get(MANAGED_MEMORY_SIZE);
-            if (managedMem == null) {
-                var managedFraction = conf.get(MANAGED_MEMORY_FRACTION);
-                var totalMemory = conf.get(TOTAL_PROCESS_MEMORY);
-                managedMem = totalMemory.multiply(managedFraction);
-            }
-
-            MemorySize totalHeap =
-                    TaskExecutorProcessUtils.processSpecFromConfig(conf)
-                            .getFlinkMemory()
-                            .getTaskHeap();
+            var flinkMemory = TaskExecutorProcessUtils.processSpecFromConfig(conf).getFlinkMemory();
+            MemorySize totalHeap = flinkMemory.getTaskHeap();
+            var managedMem = flinkMemory.getManaged();
             double heapUsed = evaluatedMetrics.getGlobalMetrics().get(HEAP_USAGE).getAverage();
             MemorySize freeHeap = totalHeap.multiply(1 - heapUsed);
-            float boastRatio = conf.get(FLINK_MANAGED_MEM_BOAST_RATIO);
-            assert boastRatio > 0 && boastRatio < 1;
-            var newManagedMem = managedMem.add(freeHeap.multiply(boastRatio));
+            float expandRatio = conf.get(FLINK_MANAGED_MEM_EXPAND_RATIO);
+            var newManagedMem = managedMem.add(freeHeap.multiply(expandRatio));
             autoScalerStateStore.storeManagedMemOverrides(
                     context, newManagedMem.getMebiBytes() + "m");
             LOG.info(
@@ -178,6 +178,18 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
                     managedMem,
                     newManagedMem,
                     freeHeap);
+
+            // change too free state to at least balance
+            memoryState =
+                    HeapMemoryState.TOO_FREE.equals(memoryState)
+                            ? HeapMemoryState.BALANCE
+                            : memoryState;
+            autoScalerStateStore.storeHeapMemoryState(context, memoryState);
+            return true;
+        }
+
+        autoScalerStateStore.storeHeapMemoryState(context, memoryState);
+        if (HeapMemoryState.TOO_FULL.equals(memoryState)) {
             return true;
         }
         return false;
@@ -275,7 +287,7 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
         return out;
     }
 
-    private boolean isJobUnderMemoryPressure(
+    private HeapMemoryState checkJobMemoryState(
             Context ctx, Map<ScalingMetric, EvaluatedScalingMetric> evaluatedMetrics) {
 
         var gcPressure = evaluatedMetrics.get(ScalingMetric.GC_PRESSURE).getCurrent();
@@ -288,7 +300,7 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
                     String.format(GC_PRESSURE_MESSAGE, gcPressure),
                     "gcPressure",
                     conf.get(SCALING_EVENT_INTERVAL));
-            return true;
+            return HeapMemoryState.TOO_FULL;
         }
 
         var heapUsage = evaluatedMetrics.get(ScalingMetric.HEAP_USAGE).getAverage();
@@ -300,10 +312,21 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
                     String.format(HEAP_USAGE_MESSAGE, heapUsage),
                     "heapUsage",
                     conf.get(SCALING_EVENT_INTERVAL));
-            return true;
+            return HeapMemoryState.TOO_FULL;
         }
 
-        return false;
+        if (heapUsage < conf.get(AutoScalerOptions.HEAP_FREE_THRESHOLD)) {
+            autoScalerEventHandler.handleEvent(
+                    ctx,
+                    AutoScalerEventHandler.Type.Normal,
+                    "MemoryWaste",
+                    String.format(HEAP_USAGE_MESSAGE, heapUsage),
+                    "heapWaste",
+                    conf.get(SCALING_EVENT_INTERVAL));
+            return HeapMemoryState.TOO_FREE;
+        }
+
+        return HeapMemoryState.BALANCE;
     }
 
     private static Map<String, String> getVertexParallelismOverrides(

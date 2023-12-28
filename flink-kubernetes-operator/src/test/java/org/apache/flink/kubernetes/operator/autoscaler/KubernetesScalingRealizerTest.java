@@ -17,6 +17,7 @@
 
 package org.apache.flink.kubernetes.operator.autoscaler;
 
+import org.apache.flink.autoscaler.state.HeapMemoryState;
 import org.apache.flink.configuration.PipelineOptions;
 import org.apache.flink.kubernetes.operator.api.FlinkDeployment;
 
@@ -55,7 +56,8 @@ public class KubernetesScalingRealizerTest {
         KubernetesJobAutoScalerContext ctx =
                 TestingKubernetesAutoscalerUtils.createContext("test", null);
 
-        new KubernetesScalingRealizer().rescaleMemory(ctx, true, Maps.newHashMap());
+        new KubernetesScalingRealizer()
+                .rescaleMemory(ctx, HeapMemoryState.TOO_FULL, Maps.newHashMap());
 
         assertThat(getTaskManagerSpec(ctx).getResource().getMemory()).isEqualTo("2457m");
     }

@@ -19,6 +19,7 @@ package org.apache.flink.autoscaler.realizer;
 
 import org.apache.flink.annotation.Experimental;
 import org.apache.flink.autoscaler.JobAutoScalerContext;
+import org.apache.flink.autoscaler.state.HeapMemoryState;
 
 import java.util.Map;
 
@@ -36,5 +37,5 @@ public interface ScalingRealizer<KEY, Context extends JobAutoScalerContext<KEY>>
     void realize(Context context, Map<String, String> parallelismOverrides);
 
     default void rescaleMemory(
-            Context context, boolean underMemoryPressure, Map<String, String> memoryInfo) {}
+            Context context, HeapMemoryState memoryState, Map<String, String> memoryInfo) {}
 }

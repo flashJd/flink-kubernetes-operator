@@ -22,6 +22,7 @@ import org.apache.flink.autoscaler.ScalingSummary;
 import org.apache.flink.autoscaler.ScalingTracking;
 import org.apache.flink.autoscaler.metrics.CollectedMetrics;
 import org.apache.flink.autoscaler.state.AutoScalerStateStore;
+import org.apache.flink.autoscaler.state.HeapMemoryState;
 import org.apache.flink.autoscaler.utils.AutoScalerSerDeModule;
 import org.apache.flink.configuration.ConfigurationUtils;
 import org.apache.flink.kubernetes.operator.autoscaler.KubernetesJobAutoScalerContext;
@@ -69,7 +70,7 @@ public class KubernetesAutoScalerStateStore
 
     @VisibleForTesting protected static final String MANAGED_OVERRIDES_KEY = "managedOverrides";
 
-    @VisibleForTesting protected static final String MEMORY_PRESSURE_KEY = "underMemoryPressure";
+    @VisibleForTesting protected static final String HEAP_MEMORY_STATE_KEY = "heapMemoryState";
 
     @VisibleForTesting protected static final int MAX_CM_BYTES = 1000000;
 
@@ -175,20 +176,18 @@ public class KubernetesAutoScalerStateStore
     }
 
     @Override
-    public void setMemoryUnderPressure(KubernetesJobAutoScalerContext jobContext) {
-        configMapStore.putSerializedState(jobContext, MEMORY_PRESSURE_KEY, MEMORY_PRESSURE_KEY);
+    public void storeHeapMemoryState(
+            KubernetesJobAutoScalerContext jobContext, HeapMemoryState memoryState) {
+        configMapStore.putSerializedState(jobContext, HEAP_MEMORY_STATE_KEY, memoryState.name());
     }
 
     @Override
-    public void removeMemoryUnderPressure(KubernetesJobAutoScalerContext jobContext) {
-        configMapStore.removeSerializedState(jobContext, MEMORY_PRESSURE_KEY);
-    }
-
-    @Override
-    public boolean isMemoryUnderPressure(KubernetesJobAutoScalerContext jobContext) {
-        Optional<String> memoryUnderPressure =
-                configMapStore.getSerializedState(jobContext, MEMORY_PRESSURE_KEY);
-        return memoryUnderPressure.isPresent();
+    public HeapMemoryState getHeapMemoryState(KubernetesJobAutoScalerContext jobContext) {
+        Optional<String> memoryState =
+                configMapStore.getSerializedState(jobContext, HEAP_MEMORY_STATE_KEY);
+        return memoryState.isPresent()
+                ? HeapMemoryState.valueOf(memoryState.get())
+                : HeapMemoryState.BALANCE;
     }
 
     @Override
