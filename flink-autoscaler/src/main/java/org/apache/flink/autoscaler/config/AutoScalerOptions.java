@@ -61,7 +61,7 @@ public class AutoScalerOptions {
     public static final ConfigOption<Boolean> MEMORY_SCALING_ENABLED =
             autoScalerConfig("memory.scaling.enabled")
                     .booleanType()
-                    .defaultValue(true)
+                    .defaultValue(false)
                     .withFallbackKeys(oldOperatorConfigKey("memory.scaling.enabled"))
                     .withDescription("Enable memory scaling execution by the autoscaler.");
 
